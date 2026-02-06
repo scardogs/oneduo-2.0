@@ -136,12 +136,12 @@ const MAX_QUEUE_INSERT_RETRIES = 3;
 const QUEUE_INSERT_BACKOFF_MS = [500, 1500, 3000]; // Exponential backoff
 
 async function insertQueueEntry(
-  supabase: any, 
-  courseId: string, 
-  step: string, 
+  supabase: any,
+  courseId: string,
+  step: string,
   metadata?: any
 ): Promise<{ success: boolean; error?: string; jobId?: string }> {
-  
+
   for (let attempt = 0; attempt < MAX_QUEUE_INSERT_RETRIES; attempt++) {
     try {
       // GUARD: Check if course is already completed - prevent reprocessing bug
@@ -150,17 +150,17 @@ async function insertQueueEntry(
         .select("status, purged")
         .eq("id", courseId)
         .single();
-      
+
       if (course?.status === 'completed') {
         console.log(`[queue-insert] SKIPPED: course ${courseId} already completed, won't insert ${step}`);
         return { success: true }; // Return success to not trigger error handling
       }
-      
+
       if (course?.purged === true) {
         console.log(`[queue-insert] SKIPPED: course ${courseId} is purged, won't insert ${step}`);
         return { success: true };
       }
-      
+
       // Check for existing pending/processing job for this step to avoid duplicates
       const { data: existingJob } = await supabase
         .from("processing_queue")
@@ -170,31 +170,31 @@ async function insertQueueEntry(
         .in("status", ["pending", "processing", "awaiting_webhook"])
         .eq("purged", false)
         .maybeSingle();
-      
+
       if (existingJob) {
         console.log(`[queue-insert] SKIPPED: job already exists for course ${courseId}, step ${step} (id: ${existingJob.id}, status: ${existingJob.status})`);
         return { success: true, jobId: existingJob.id };
       }
-      
+
       const { data, error } = await supabase.from("processing_queue").insert({
         course_id: courseId,
         step: step,
         status: "pending",
         metadata: metadata || {},
       }).select().single();
-      
+
       if (error) {
         const errorMessage = error.message || 'Unknown queue insertion error';
-        const isConstraintViolation = errorMessage.includes('violates check constraint') || 
-                                       errorMessage.includes('constraint') ||
-                                       errorMessage.includes('duplicate');
-        
+        const isConstraintViolation = errorMessage.includes('violates check constraint') ||
+          errorMessage.includes('constraint') ||
+          errorMessage.includes('duplicate');
+
         // If it's a duplicate/constraint error, that's actually okay - job exists
         if (isConstraintViolation) {
           console.log(`[queue-insert] Constraint hit for course ${courseId}, step ${step} - job likely exists`);
           return { success: true };
         }
-        
+
         // Transient error - retry with backoff
         if (attempt < MAX_QUEUE_INSERT_RETRIES - 1) {
           const delay = QUEUE_INSERT_BACKOFF_MS[attempt] || 3000;
@@ -202,9 +202,9 @@ async function insertQueueEntry(
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
-        
+
         console.error(`[queue-insert] FAILED after ${MAX_QUEUE_INSERT_RETRIES} attempts for course ${courseId}, step ${step}:`, errorMessage);
-        
+
         await supabase.from("error_logs").insert({
           course_id: courseId,
           error_type: 'queue_insertion_failed',
@@ -213,7 +213,7 @@ async function insertQueueEntry(
           fix_strategy: 'Investigate queue insertion failure',
           attempt_number: MAX_QUEUE_INSERT_RETRIES
         }).catch((e: Error) => console.warn('[queue-insert] Failed to log error:', e));
-        
+
         // Emit processing event for visibility
         await emitProcessingEvent(supabase, 'queue_insertion_failed', 'course', courseId, {
           step,
@@ -221,16 +221,16 @@ async function insertQueueEntry(
           attempts: MAX_QUEUE_INSERT_RETRIES,
           metadata
         }).catch((e: Error) => console.warn('[queue-insert] Failed to emit event:', e));
-        
+
         return { success: false, error: errorMessage };
       }
-      
+
       console.log(`[queue-insert] SUCCESS: course ${courseId}, step ${step}, job ${data?.id}`);
       return { success: true, jobId: data?.id };
-      
+
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : 'Unknown error';
-      
+
       // Retry on transient exceptions
       if (attempt < MAX_QUEUE_INSERT_RETRIES - 1) {
         const delay = QUEUE_INSERT_BACKOFF_MS[attempt] || 3000;
@@ -238,12 +238,12 @@ async function insertQueueEntry(
         await new Promise(r => setTimeout(r, delay));
         continue;
       }
-      
+
       console.error(`[queue-insert] EXCEPTION after ${MAX_QUEUE_INSERT_RETRIES} attempts for course ${courseId}, step ${step}:`, errorMessage);
       return { success: false, error: errorMessage };
     }
   }
-  
+
   return { success: false, error: 'Max retries exceeded' };
 }
 
@@ -304,10 +304,10 @@ async function releaseModuleLease(supabase: any, moduleId: string, workerId: str
 
 // Emit event to outbox for reliable processing
 async function emitProcessingEvent(
-  supabase: any, 
-  eventType: string, 
-  entityType: string, 
-  entityId: string, 
+  supabase: any,
+  eventType: string,
+  entityType: string,
+  entityId: string,
   payload: Record<string, any> = {}
 ): Promise<string | null> {
   try {
@@ -370,7 +370,7 @@ async function processOutboxEvents(supabase: any): Promise<void> {
 // Handle module_completed event (send email if not in merged mode)
 async function handleModuleCompletedEvent(supabase: any, event: any): Promise<void> {
   const { moduleId, email, courseTitle, moduleNumber, totalModules, courseId } = event.payload;
-  
+
   // Check if course is in merged mode - skip per-module emails
   try {
     const { data: course } = await supabase
@@ -378,7 +378,7 @@ async function handleModuleCompletedEvent(supabase: any, event: any): Promise<vo
       .select("merged_course_mode, send_per_module_emails")
       .eq("id", courseId)
       .single();
-    
+
     if (course?.merged_course_mode === true || course?.send_per_module_emails === false) {
       console.log(`[handleModuleCompletedEvent] Course ${courseId} is in merged mode, skipping per-module email for module ${moduleNumber}`);
       return;
@@ -386,7 +386,7 @@ async function handleModuleCompletedEvent(supabase: any, event: any): Promise<vo
   } catch (e) {
     console.warn(`[handleModuleCompletedEvent] Could not check merged mode for course ${courseId}:`, e);
   }
-  
+
   await sendModuleCompleteEmailIdempotent(supabase, moduleId, email, courseTitle, moduleNumber, totalModules, courseId);
 }
 
@@ -394,7 +394,7 @@ async function handleModuleCompletedEvent(supabase: any, event: any): Promise<vo
 // Note: sendCompletionEmail fetches team info from DB itself, so we just pass the basics
 async function handleCourseCompletedEvent(supabase: any, event: any): Promise<void> {
   const { email, courseTitle, courseId } = event.payload;
-  
+
   // Check if this course has an API job with a callback URL
   try {
     const { data: apiJob } = await supabase
@@ -402,7 +402,7 @@ async function handleCourseCompletedEvent(supabase: any, event: any): Promise<vo
       .select('id, callback_url')
       .eq('course_id', courseId)
       .single();
-    
+
     if (apiJob?.callback_url) {
       console.log(`[api-callback] Triggering webhook for course ${courseId} -> ${apiJob.callback_url}`);
       const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
@@ -418,14 +418,14 @@ async function handleCourseCompletedEvent(supabase: any, event: any): Promise<vo
   } catch (e) {
     console.warn('[api-callback] Error checking for API job:', e);
   }
-  
+
   await sendCompletionEmail(supabase, email, courseTitle, courseId);
 }
 
 // Handle processing_failed event (send failure email + API callback)
 async function handleProcessingFailedEvent(supabase: any, event: any): Promise<void> {
   const { email, courseTitle, courseId, errorMessage, errorAnalysis } = event.payload;
-  
+
   // Check if this course has an API job with a callback URL
   try {
     const { data: apiJob } = await supabase
@@ -433,7 +433,7 @@ async function handleProcessingFailedEvent(supabase: any, event: any): Promise<v
       .select('id, callback_url')
       .eq('course_id', courseId)
       .single();
-    
+
     if (apiJob?.callback_url) {
       console.log(`[api-callback] Triggering failure webhook for course ${courseId} -> ${apiJob.callback_url}`);
       const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
@@ -449,7 +449,7 @@ async function handleProcessingFailedEvent(supabase: any, event: any): Promise<v
   } catch (e) {
     console.warn('[api-callback] Error checking for API job:', e);
   }
-  
+
   await sendFailureEmail(email, courseTitle, courseId, errorMessage, errorAnalysis);
 }
 
@@ -474,9 +474,9 @@ type ProgressStep = 'uploading' | 'queued' | 'extracting_frames' | 'transcribing
 
 // Update progress step for a course or module
 async function updateProgressStep(
-  supabase: any, 
-  entityType: 'courses' | 'course_modules', 
-  entityId: string, 
+  supabase: any,
+  entityType: 'courses' | 'course_modules',
+  entityId: string,
   progressStep: ProgressStep,
   additionalUpdates?: Record<string, any>
 ): Promise<void> {
@@ -517,14 +517,14 @@ function getGifStoragePath(courseId: string, segmentNumber: number, moduleNumber
 // Create a heartbeat interval that keeps updating while job runs
 // Also renews lease and refreshes processing_queue.started_at to prevent watchdog kills
 function createHeartbeatInterval(
-  supabase: any, 
-  courseId: string, 
+  supabase: any,
+  courseId: string,
   moduleId?: string,
   workerId?: string,
   queueJobId?: string
 ): number {
   console.log(`[heartbeat] Starting background heartbeat for course ${courseId}, queueJobId ${queueJobId}`);
-  
+
   return setInterval(async () => {
     try {
       // CRITICAL: Update processing_queue.started_at to prevent watchdog from killing us
@@ -543,7 +543,7 @@ function createHeartbeatInterval(
           .eq("status", "processing");
         console.log(`[heartbeat] Refreshed processing_queue.started_at for course ${courseId}`);
       }
-      
+
       // Also update course/module heartbeats for other monitoring
       await updateCourseHeartbeat(supabase, courseId);
       if (moduleId) {
@@ -553,7 +553,7 @@ function createHeartbeatInterval(
           await renewModuleLease(supabase, moduleId, workerId);
         }
       }
-      
+
       // Log heartbeat event for forensics
       const logJobId = moduleId ? `module-${moduleId.slice(0, 8)}` : getJobIdForCourse(courseId);
       await logJobEvent(supabase, logJobId, {
@@ -565,7 +565,7 @@ function createHeartbeatInterval(
           course_id: courseId,
           module_id: moduleId || null,
         }
-      }).catch(() => {}); // Don't fail on log errors
+      }).catch(() => { }); // Don't fail on log errors
     } catch (e) {
       console.warn(`[heartbeat] Failed to update heartbeat:`, e);
     }
@@ -582,7 +582,7 @@ interface ErrorAnalysis {
 
 function classifyError(errorMessage: string): ErrorAnalysis {
   const msg = errorMessage.toLowerCase();
-  
+
   if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many requests')) {
     return { type: 'rate_limit', canAutoFix: true, fixStrategy: 'wait_and_retry', retryDelay: 60000 };
   }
@@ -647,7 +647,7 @@ const isAllowedVideoUrl = (url: string): boolean => {
     return false;
   }
   const trimmed = url.trim().toLowerCase();
-  
+
   // Block internal/private network URLs
   const blockedPatterns = [
     /^https?:\/\/localhost/i,
@@ -660,26 +660,26 @@ const isAllowedVideoUrl = (url: string): boolean => {
     /^file:/,
     /^ftp:/,
   ];
-  
+
   for (const pattern of blockedPatterns) {
     if (pattern.test(trimmed)) {
       console.error(`[SSRF] Blocked suspicious URL pattern: ${url}`);
       return false;
     }
   }
-  
+
   // Allow our own Supabase storage URLs (for uploaded videos)
   if (isSupabaseStorageUrl(url)) {
     console.log(`[isAllowedVideoUrl] Allowed Supabase storage URL: ${url.substring(0, 80)}...`);
     return true;
   }
-  
+
   // Allow our own Supabase edge function URLs (for streaming proxy)
   if (isSupabaseEdgeFunctionUrl(url)) {
     console.log(`[isAllowedVideoUrl] Allowed Supabase edge function URL: ${url.substring(0, 80)}...`);
     return true;
   }
-  
+
   // Allow known video platforms
   const isAllowed = isValidLoomUrl(url) || isValidVimeoUrl(url) || isValidZoomUrl(url);
   console.log(`[isAllowedVideoUrl] URL check result: ${isAllowed} for ${url.substring(0, 80)}...`);
@@ -688,12 +688,12 @@ const isAllowedVideoUrl = (url: string): boolean => {
 
 const getDirectVideoUrl = (inputUrl: string): string => {
   const trimmed = inputUrl.trim();
-  
+
   // Loom - already direct
   if (trimmed.includes('loom.com/share/')) {
     return trimmed;
   }
-  
+
   // Vimeo - handle both formats
   if (trimmed.includes('vimeo.com/')) {
     // Extract video ID and return player embed URL for better compatibility
@@ -702,12 +702,12 @@ const getDirectVideoUrl = (inputUrl: string): string => {
       return `https://player.vimeo.com/video/${match[1]}`;
     }
   }
-  
+
   // Zoom - cloud recordings share links
   if (trimmed.includes('zoom.us/rec/')) {
     return trimmed;
   }
-  
+
   return trimmed;
 };
 
@@ -757,7 +757,7 @@ async function detectChunkedUpload(supabase: any, videoUrl: string): Promise<{
     // Check for manifest file (video.mp4.manifest.json)
     // The video URL might point to chunk_0000, so we need to find the base path
     let basePath = ref.objectPath;
-    
+
     // If it ends with _chunk_XXXX, strip that to get base path
     const chunkMatch = basePath.match(/^(.+?)_chunk_\d+$/);
     if (chunkMatch) {
@@ -819,7 +819,7 @@ async function processChunkedVideo(
   const jobId = `chunked-${courseId.slice(0, 8)}`;
   const totalGB = (chunkedInfo.manifest!.totalSize / (1024 * 1024 * 1024)).toFixed(2);
   const uploadChunkCount = chunkedInfo.manifest!.chunkCount;
-  
+
   await logJobEvent(supabase, jobId, {
     step: 'chunked_processing_start',
     level: 'info',
@@ -830,19 +830,19 @@ async function processChunkedVideo(
   // Update course status
   await supabase.from("courses").update({
     status: "processing",
-    progress: 5,
+    progress: 8, // Start slightly higher to show immediate movement
     progress_step: "chunking_video",
     chunked: true,
     chunk_count: 0, // Will be updated after we create processing chunks
   }).eq("id", courseId);
 
-  // Calculate video duration estimate from file size (rough: ~10MB per minute)
-  const estimatedDurationSeconds = Math.ceil(chunkedInfo.manifest!.totalSize / (10 * 1024 * 1024) * 60);
-  
+  // Calculate video duration estimate from file size (generous for screen recordings: ~1MB per minute)
+  const estimatedDurationSeconds = Math.ceil(chunkedInfo.manifest!.totalSize / (1 * 1024 * 1024) * 60);
+
   // Define processing chunk duration (10 minutes per processing chunk)
   const PROCESSING_CHUNK_DURATION = 10 * 60; // 10 minutes in seconds
   const processingChunkCount = Math.ceil(estimatedDurationSeconds / PROCESSING_CHUNK_DURATION);
-  
+
   console.log(`[processChunkedVideo] Estimated duration: ${estimatedDurationSeconds}s, creating ${processingChunkCount} processing chunks`);
 
   // Create video_chunks records for each 10-minute segment
@@ -850,7 +850,7 @@ async function processChunkedVideo(
   for (let i = 0; i < processingChunkCount; i++) {
     const startSeconds = i * PROCESSING_CHUNK_DURATION;
     const endSeconds = Math.min((i + 1) * PROCESSING_CHUNK_DURATION, estimatedDurationSeconds);
-    
+
     chunkRecords.push({
       course_id: courseId,
       module_id: null,
@@ -903,7 +903,7 @@ async function processChunkedVideo(
 
   // Mark current processing queue job as awaiting webhook
   await supabase.from("processing_queue")
-    .update({ 
+    .update({
       status: "awaiting_webhook",
       metadata: { chunkedProcessing: true, chunkCount: processingChunkCount }
     })
@@ -914,9 +914,9 @@ async function processChunkedVideo(
   // Trigger parallel chunk processing (up to 5 at a time)
   const MAX_PARALLEL_CHUNKS = 5;
   const chunksToStart = Math.min(MAX_PARALLEL_CHUNKS, processingChunkCount);
-  
+
   console.log(`[processChunkedVideo] Triggering ${chunksToStart} parallel chunk processors`);
-  
+
   // Invoke process-chunk function for each initial batch
   const chunkPromises: Promise<any>[] = [];
   for (let i = 0; i < chunksToStart; i++) {
@@ -1071,12 +1071,12 @@ serve(async (req) => {
     switch (action) {
       // ============ CREATE COURSE (with multi-module support) ============
       case "create-course": {
-        const { 
-          email, 
-          title, 
-          videoUrl, 
-          densityMode = "standard", 
-          isMultiModule = false, 
+        const {
+          email,
+          title,
+          videoUrl,
+          densityMode = "standard",
+          isMultiModule = false,
           modules,
           // New: pre-extracted frames from client-side FFmpeg
           preExtractedFrames,
@@ -1097,13 +1097,13 @@ serve(async (req) => {
           // Control per-module emails (false when merged mode is on)
           sendPerModuleEmails = true,
         } = body;
-        
+
         console.log(`[create-course] NEW COURSE REQUEST - Email: ${email}, Title: ${title}, FPS: ${extractionFps} (${extractionFps === 1 ? 'Fast' : 'Precision'}), UploadId: ${uploadId || 'none'}, MergedMode: ${mergedCourseMode}, VideoUrl: ${videoUrl?.substring(0, 80) || 'multi-module'}...`);
-        
+
         // Validate extractionFps - only 1 (Fast Mode) or 3 (Precision Mode) are allowed
         // Default to 1 FPS for Fast Mode (~3x faster processing)
         const validatedFps = extractionFps === 3 ? 3 : 1;
-        
+
         if (!email || !title || (!videoUrl && !modules?.length)) {
           return new Response(JSON.stringify({ error: "Missing required fields" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1115,8 +1115,8 @@ serve(async (req) => {
         if (videoUrl && !isMultiModule) {
           if (!isAllowedVideoUrl(videoUrl)) {
             console.error(`[SSRF] Rejected invalid video URL: ${videoUrl}`);
-            return new Response(JSON.stringify({ 
-              error: "Invalid video URL. Please upload a video file or use Loom, Vimeo, or Zoom URLs." 
+            return new Response(JSON.stringify({
+              error: "Invalid video URL. Please upload a video file or use Loom, Vimeo, or Zoom URLs."
             }), {
               status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
@@ -1129,15 +1129,15 @@ serve(async (req) => {
             // Skip validation if no URL (shouldn't happen) or if it's from our storage
             if (mod.videoUrl && !isAllowedVideoUrl(mod.videoUrl)) {
               console.error(`[SSRF] Rejected invalid module video URL: ${mod.videoUrl}`);
-              return new Response(JSON.stringify({ 
-                error: `Invalid video URL in module "${mod.title || mod.moduleNumber}". Please upload a video file or use Loom, Vimeo, or Zoom URLs.` 
+              return new Response(JSON.stringify({
+                error: `Invalid video URL in module "${mod.title || mod.moduleNumber}". Please upload a video file or use Loom, Vimeo, or Zoom URLs.`
               }), {
                 status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
               });
             }
           }
         }
-        
+
         console.log(`[create-course] Validated URLs. isMultiModule: ${isMultiModule}, modules count: ${modules?.length || 0}`);
 
         // Check if we have pre-extracted frames (client-side extraction)
@@ -1145,7 +1145,7 @@ serve(async (req) => {
 
         // Create course record - CRITICAL: Include user_id to enable OneDuo artifact generation
         console.log(`[create-course] Creating course with user_id: ${authenticatedUserId || 'NULL (anonymous)'}`);
-        
+
         const { data: course, error: courseError } = await supabase
           .from("courses")
           .insert({
@@ -1191,7 +1191,7 @@ serve(async (req) => {
           console.error(`[create-course] FAILED to create course: ${courseError.message}`, courseError);
           throw courseError;
         }
-        
+
         console.log(`[create-course] SUCCESS - Course ID: ${course.id}, FPS: ${validatedFps}, Status: ${course.status}`);
 
         // Create module records if multi-module
@@ -1236,14 +1236,14 @@ serve(async (req) => {
           // PARALLEL PROCESSING: Queue up to 3 modules simultaneously for faster processing
           const MAX_PARALLEL_MODULES = 3;
           const modulesToQueue = Math.min(modules.length, MAX_PARALLEL_MODULES);
-          
+
           console.log(`[create-course] PARALLEL: Queueing ${modulesToQueue} modules simultaneously for course ${course.id}`);
-          
+
           for (let i = 0; i < modulesToQueue; i++) {
             const mod = modules[i];
             const hasModuleFrames = mod.frameUrls && mod.frameUrls.length > 0;
             const requiresStitching = mod.requiresStitching || (mod.sourceVideos?.length > 1);
-            
+
             // Determine the step based on stitching requirement
             let step: string;
             if (requiresStitching) {
@@ -1253,17 +1253,17 @@ serve(async (req) => {
             } else {
               step = "transcribe_and_extract_module";
             }
-            
+
             // Get the module ID for stitch step
             const moduleId = insertedModules?.find((im: any) => im.module_number === mod.moduleNumber)?.id;
-            
-            const queueResult = await insertQueueEntry(supabase, course.id, step, { 
+
+            const queueResult = await insertQueueEntry(supabase, course.id, step, {
               moduleNumber: mod.moduleNumber,
               hasPreExtractedFrames: hasModuleFrames,
-              ...(requiresStitching && { 
+              ...(requiresStitching && {
                 moduleId,
                 sourceVideos: mod.sourceVideos,
-                requiresStitching: true 
+                requiresStitching: true
               })
             });
             if (!queueResult.success) {
@@ -1275,8 +1275,8 @@ serve(async (req) => {
         } else if (hasPreExtractedFrames) {
           // Single video with pre-extracted frames - skip to transcription then GIF rendering
           console.log(`[create-course] Course ${course.id} has ${preExtractedFrames.length} pre-extracted frames`);
-          
-          const queueResult = await insertQueueEntry(supabase, course.id, "transcribe", { 
+
+          const queueResult = await insertQueueEntry(supabase, course.id, "transcribe", {
             hasPreExtractedFrames: true,
             skipFrameExtraction: true
           });
@@ -1292,7 +1292,7 @@ serve(async (req) => {
         }
 
         console.log(`[process-course] Created course ${course.id}${isMultiModule ? ` with ${modules.length} modules` : ''}${hasPreExtractedFrames ? ' (with pre-extracted frames)' : ''}`);
-        
+
         // IMMEDIATE PROCESSING: Start processing right away, don't wait for cron
         // Use waitUntil if available, otherwise fire-and-forget fetch
         const processPromise = processNextStep(supabase, course.id);
@@ -1303,10 +1303,10 @@ serve(async (req) => {
           processPromise.catch((e: Error) => console.warn('[create-course] Background poll failed:', e));
         }
 
-        return new Response(JSON.stringify({ 
-          success: true, 
+        return new Response(JSON.stringify({
+          success: true,
           courseId: course.id,
-          message: isMultiModule 
+          message: isMultiModule
             ? `Course with ${modules.length} modules queued for processing.`
             : hasPreExtractedFrames
               ? "Course processing started with pre-extracted frames!"
@@ -1317,7 +1317,7 @@ serve(async (req) => {
       // ============ ADD MODULES TO EXISTING COURSE ============
       case "add-modules": {
         const { email, modules } = body;
-        
+
         if (!courseId || !email || !modules?.length) {
           return new Response(JSON.stringify({ error: "Missing required fields" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1383,16 +1383,16 @@ serve(async (req) => {
         // PARALLEL PROCESSING: Queue up to 3 new modules simultaneously
         const MAX_PARALLEL_MODULES = 3;
         const modulesToQueue = Math.min(modules.length, MAX_PARALLEL_MODULES);
-        
+
         console.log(`[add-modules] PARALLEL: Queueing ${modulesToQueue} modules for course ${courseId}`);
-        
+
         for (let i = 0; i < modulesToQueue; i++) {
           const mod = modules[i];
           const modNumber = lastModuleNumber + i + 1;
           const hasModuleFrames = mod.frameUrls && mod.frameUrls.length > 0;
           const step = hasModuleFrames ? "transcribe_module" : "transcribe_and_extract_module";
-          
-          const queueResult = await insertQueueEntry(supabase, courseId, step, { 
+
+          const queueResult = await insertQueueEntry(supabase, courseId, step, {
             moduleNumber: modNumber,
             hasPreExtractedFrames: hasModuleFrames
           });
@@ -1406,8 +1406,8 @@ serve(async (req) => {
         console.log(`[add-modules] Added ${modules.length} modules to course ${courseId}`);
         (globalThis as any).EdgeRuntime?.waitUntil?.(processNextStep(supabase, courseId));
 
-        return new Response(JSON.stringify({ 
-          success: true, 
+        return new Response(JSON.stringify({
+          success: true,
           courseId,
           message: `Added ${modules.length} module(s) to course.`
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -1442,7 +1442,7 @@ serve(async (req) => {
       // ============ GET DASHBOARD ============
       case "get-dashboard": {
         const { email } = body;
-        
+
         // GOVERNANCE: Filter out purged records (soft-deleted via execution_frames)
         const { data: courses, error } = await supabase
           .from("courses")
@@ -1457,7 +1457,7 @@ serve(async (req) => {
         // GOVERNANCE: Filter out purged modules
         const courseIds = courses?.map((c: any) => c.id) || [];
         let moduleMap: Record<string, any[]> = {};
-        
+
         if (courseIds.length > 0) {
           const { data: modules } = await supabase
             .from("course_modules")
@@ -1465,7 +1465,7 @@ serve(async (req) => {
             .in("course_id", courseIds)
             .eq("purged", false)
             .order("module_number");
-          
+
           if (modules) {
             for (const mod of modules) {
               if (!moduleMap[mod.course_id]) moduleMap[mod.course_id] = [];
@@ -1641,7 +1641,7 @@ serve(async (req) => {
       // ============ SMART RETRY WITH SELF-HEALING ============
       case "retry": {
         const { fixStrategy } = body;
-        
+
         const { data: course, error: fetchError } = await supabase
           .from("courses")
           .select("*")
@@ -1681,11 +1681,11 @@ serve(async (req) => {
           .maybeSingle();
 
         let restartStep = lastJob?.step || "transcribe";
-        
+
         // Apply self-healing modifications based on error type
-        const metadata: Record<string, any> = { 
+        const metadata: Record<string, any> = {
           fixStrategy: errorAnalysis.fixStrategy,
-          fixAttempt: fixAttempts 
+          fixAttempt: fixAttempts
         };
 
         if (errorAnalysis.type === 'transcription' && fixAttempts >= 2) {
@@ -1694,7 +1694,7 @@ serve(async (req) => {
           restartStep = "extract_frames";
           console.log(`[retry] Skipping transcription after ${fixAttempts} failures`);
         }
-        
+
         if (errorAnalysis.type === 'rate_limit') {
           metadata.extendedDelay = true;
           metadata.delayMultiplier = fixAttempts;
@@ -1717,8 +1717,8 @@ serve(async (req) => {
         const queueResult = await insertQueueEntry(supabase, courseId, restartStep, metadata);
         if (!queueResult.success) {
           console.error(`[retry] CRITICAL: Failed to queue ${restartStep} for course ${courseId}: ${queueResult.error}`);
-          return new Response(JSON.stringify({ 
-            success: false, 
+          return new Response(JSON.stringify({
+            success: false,
             error: `Failed to queue retry: ${queueResult.error}`
           }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
@@ -1731,8 +1731,8 @@ serve(async (req) => {
 
         (globalThis as any).EdgeRuntime?.waitUntil?.(processNextStep(supabase, courseId));
 
-        return new Response(JSON.stringify({ 
-          success: true, 
+        return new Response(JSON.stringify({
+          success: true,
           fixStrategy: errorAnalysis.fixStrategy,
           canAutoFix: errorAnalysis.canAutoFix
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -1767,12 +1767,12 @@ serve(async (req) => {
 
         // Check for recoverable data
         const hasFrames = Array.isArray(course.frame_urls) && course.frame_urls.length > 0;
-        const hasTranscript = course.transcript && 
+        const hasTranscript = course.transcript &&
           ((Array.isArray(course.transcript) && course.transcript.length > 0) ||
-           (course.transcript.segments && course.transcript.segments.length > 0));
+            (course.transcript.segments && course.transcript.segments.length > 0));
 
         if (!hasFrames && !hasTranscript) {
-          return new Response(JSON.stringify({ 
+          return new Response(JSON.stringify({
             error: "No recoverable data found - please re-upload the video",
             hasFrames: false,
             hasTranscript: false
@@ -1824,8 +1824,8 @@ serve(async (req) => {
 
         if (!queueResult.success) {
           console.error(`[resume-failed] Failed to queue ${resumeStep} for course ${courseId}`);
-          return new Response(JSON.stringify({ 
-            success: false, 
+          return new Response(JSON.stringify({
+            success: false,
             error: `Failed to queue resume: ${queueResult.error}`
           }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
@@ -1841,8 +1841,8 @@ serve(async (req) => {
         console.log(`[resume-failed] Course ${courseId} resumed at ${resumeStep} (${resumeProgress}%)`);
         (globalThis as any).EdgeRuntime?.waitUntil?.(processNextStep(supabase, courseId));
 
-        return new Response(JSON.stringify({ 
-          success: true, 
+        return new Response(JSON.stringify({
+          success: true,
           courseId,
           resumeStep,
           hasFrames,
@@ -1854,7 +1854,7 @@ serve(async (req) => {
       // ============ REPAIR STALLED MODULE (one-click recovery) ============
       case "repair-module": {
         const { moduleId } = body;
-        
+
         if (!moduleId) {
           return new Response(JSON.stringify({ error: "moduleId is required" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1877,21 +1877,21 @@ serve(async (req) => {
         // Check if module is stalled (not completed/failed but no recent heartbeat)
         const stalledThreshold = 5 * 60 * 1000; // 5 minutes
         const lastHeartbeat = module.heartbeat_at ? new Date(module.heartbeat_at).getTime() : 0;
-        const isStalled = !['completed', 'failed', 'queued', 'pending'].includes(module.status) && 
-                          (Date.now() - lastHeartbeat > stalledThreshold);
-        
+        const isStalled = !['completed', 'failed', 'queued', 'pending'].includes(module.status) &&
+          (Date.now() - lastHeartbeat > stalledThreshold);
+
         // Check if module has usable partial data
         const hasTranscript = Array.isArray(module.transcript) && module.transcript.length > 0;
         const hasFrames = Array.isArray(module.frame_urls) && module.frame_urls.length > 0;
         const hasPartialData = hasTranscript || hasFrames;
-        
+
         // Determine repair strategy
         let repairStrategy = 'restart';
         if (hasPartialData && module.retry_count >= 2) {
           // After 2+ retries with partial data, mark as partial-ready
           repairStrategy = 'mark_partial_ready';
         }
-        
+
         const retryCount = (module.retry_count || 0) + 1;
 
         console.log(`[repair-module] Module ${moduleId} status=${module.status}, stalled=${isStalled}, hasPartialData=${hasPartialData}, strategy=${repairStrategy}`);
@@ -1917,8 +1917,8 @@ serve(async (req) => {
             completed_at: new Date().toISOString(),
           }).eq("id", moduleId);
 
-          return new Response(JSON.stringify({ 
-            success: true, 
+          return new Response(JSON.stringify({
+            success: true,
             moduleId,
             strategy: 'mark_partial_ready',
             message: 'Module marked as partial-ready for download'
@@ -1945,17 +1945,17 @@ serve(async (req) => {
         }
 
         // Queue the module for processing
-        const queueResult = await insertQueueEntry(supabase, module.course_id, "transcribe_module", { 
+        const queueResult = await insertQueueEntry(supabase, module.course_id, "transcribe_module", {
           moduleNumber: module.module_number,
           moduleId: moduleId,
           isRepair: true,
           retryAttempt: retryCount
         });
-        
+
         if (!queueResult.success) {
           console.error(`[repair-module] CRITICAL: Failed to queue transcribe_module for module ${moduleId}`);
-          return new Response(JSON.stringify({ 
-            success: false, 
+          return new Response(JSON.stringify({
+            success: false,
             error: `Failed to queue repair: ${queueResult.error}`
           }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
@@ -1963,8 +1963,8 @@ serve(async (req) => {
         console.log(`[repair-module] Module ${moduleId} queued for repair (attempt ${retryCount})`);
         (globalThis as any).EdgeRuntime?.waitUntil?.(processNextStep(supabase, module.course_id));
 
-        return new Response(JSON.stringify({ 
-          success: true, 
+        return new Response(JSON.stringify({
+          success: true,
           moduleId,
           strategy: 'restart',
           retryAttempt: retryCount
@@ -1974,7 +1974,7 @@ serve(async (req) => {
       // ============ RETRY SPECIFIC MODULE ============
       case "retry-module": {
         const { moduleId } = body;
-        
+
         if (!moduleId) {
           return new Response(JSON.stringify({ error: "moduleId is required" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2035,17 +2035,17 @@ serve(async (req) => {
         }
 
         // Queue the module for processing
-        const queueResult = await insertQueueEntry(supabase, module.course_id, "transcribe_module", { 
+        const queueResult = await insertQueueEntry(supabase, module.course_id, "transcribe_module", {
           moduleNumber: module.module_number,
           moduleId: moduleId,
           isManualRetry: true,
           retryAttempt: retryCount
         });
-        
+
         if (!queueResult.success) {
           console.error(`[retry-module] CRITICAL: Failed to queue transcribe_module for module ${moduleId}`);
-          return new Response(JSON.stringify({ 
-            success: false, 
+          return new Response(JSON.stringify({
+            success: false,
             error: `Failed to queue retry: ${queueResult.error}`
           }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
@@ -2053,8 +2053,8 @@ serve(async (req) => {
         console.log(`[retry-module] Module ${moduleId} queued for retry (attempt ${retryCount})`);
         (globalThis as any).EdgeRuntime?.waitUntil?.(processNextStep(supabase, module.course_id));
 
-        return new Response(JSON.stringify({ 
-          success: true, 
+        return new Response(JSON.stringify({
+          success: true,
           moduleId,
           retryAttempt: retryCount
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2083,8 +2083,8 @@ serve(async (req) => {
 
         // Skip if already completed
         if (course.status === 'completed') {
-          return new Response(JSON.stringify({ 
-            success: true, 
+          return new Response(JSON.stringify({
+            success: true,
             message: "Course already completed!",
             status: 'completed'
           }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2105,9 +2105,9 @@ serve(async (req) => {
           // Jobs exist - trigger processing
           console.log(`[kickstart] Found ${pendingJobs.length} pending jobs, triggering processing...`);
           (globalThis as any).EdgeRuntime?.waitUntil?.(processNextStep(supabase, courseId));
-          
-          return new Response(JSON.stringify({ 
-            success: true, 
+
+          return new Response(JSON.stringify({
+            success: true,
             message: `Processing triggered for ${pendingJobs.length} job(s)`,
             jobCount: pendingJobs.length
           }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2116,7 +2116,7 @@ serve(async (req) => {
         // No pending jobs - need to determine what step to queue based on completed jobs
         // This handles courses stuck at intermediate progress with no active jobs
         console.log(`[kickstart] No active jobs for course ${courseId}, determining next step...`);
-        
+
         // Get the last completed job to determine next step
         const { data: completedJobs } = await supabase
           .from("processing_queue")
@@ -2142,13 +2142,13 @@ serve(async (req) => {
 
           if (modules && modules.length > 0) {
             console.log(`[kickstart] Creating queue entries for ${modules.length} modules...`);
-            
+
             for (const mod of modules) {
               // Determine if module has pre-extracted frames
               const hasFrames = mod.frame_urls && Array.isArray(mod.frame_urls) && mod.frame_urls.length > 0;
               const step = hasFrames ? "transcribe_module" : "transcribe_and_extract_module";
-              
-              const queueResult = await insertQueueEntry(supabase, courseId, step, { 
+
+              const queueResult = await insertQueueEntry(supabase, courseId, step, {
                 moduleNumber: mod.module_number,
                 kickstarted: true
               });
@@ -2156,11 +2156,11 @@ serve(async (req) => {
                 console.log(`[kickstart] Queued module ${mod.module_number} with step ${step}`);
               }
             }
-            
+
             (globalThis as any).EdgeRuntime?.waitUntil?.(processNextStep(supabase, courseId));
-            
-            return new Response(JSON.stringify({ 
-              success: true, 
+
+            return new Response(JSON.stringify({
+              success: true,
               message: `Created and triggered ${modules.length} processing job(s)`,
               modulesQueued: modules.length
             }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2168,14 +2168,14 @@ serve(async (req) => {
         } else {
           // Single-module course - determine next step from completed steps
           let nextStep: string | null = null;
-          
+
           // Check what's already completed to determine next step
-          if (!completedSteps.includes("transcribe_and_extract") && 
-              !completedSteps.includes("transcribe") && 
-              !completedSteps.includes("extract_frames")) {
+          if (!completedSteps.includes("transcribe_and_extract") &&
+            !completedSteps.includes("transcribe") &&
+            !completedSteps.includes("extract_frames")) {
             nextStep = "transcribe_and_extract";
-          } else if (!completedSteps.includes("analyze_audio") && 
-                     !completedSteps.includes("render_gifs")) {
+          } else if (!completedSteps.includes("analyze_audio") &&
+            !completedSteps.includes("render_gifs")) {
             nextStep = "analyze_audio";
           } else if (!completedSteps.includes("train_ai")) {
             nextStep = "train_ai";
@@ -2183,28 +2183,28 @@ serve(async (req) => {
 
           if (nextStep) {
             console.log(`[kickstart] Queueing next step: ${nextStep}`);
-            
+
             const queueResult = await insertQueueEntry(supabase, courseId, nextStep, {
               kickstarted: true,
               previousSteps: completedSteps
             });
-            
+
             if (queueResult.success) {
               // Update course status to processing if it was queued
               if (course.status === 'queued') {
                 await supabase.from("courses").update({ status: 'processing' }).eq("id", courseId);
               }
-              
+
               (globalThis as any).EdgeRuntime?.waitUntil?.(processNextStep(supabase, courseId));
-              
-              return new Response(JSON.stringify({ 
-                success: true, 
+
+              return new Response(JSON.stringify({
+                success: true,
                 message: `Queued ${nextStep} and triggered processing`,
                 step: nextStep
               }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
             } else {
-              return new Response(JSON.stringify({ 
-                success: false, 
+              return new Response(JSON.stringify({
+                success: false,
                 message: `Failed to queue ${nextStep}: ${queueResult.error}`,
               }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
             }
@@ -2213,9 +2213,9 @@ serve(async (req) => {
 
         // No action needed - just send kickstart signal
         (globalThis as any).EdgeRuntime?.waitUntil?.(processNextStep(supabase, courseId));
-        
-        return new Response(JSON.stringify({ 
-          success: true, 
+
+        return new Response(JSON.stringify({
+          success: true,
           message: "Kickstart signal sent",
           note: "Processing will resume if there are pending steps",
           completedSteps
@@ -2227,34 +2227,34 @@ serve(async (req) => {
         const workerId = generateWorkerId();
         const VISIBILITY_SECONDS = 900; // 15 minutes
         let claimedCount = 0;
-        
+
         // Claim up to 5 jobs atomically using the database function
         for (let i = 0; i < 5; i++) {
           const { data: claimedJob, error: claimError } = await supabase.rpc('claim_processing_job', {
             p_worker_id: workerId,
             p_visibility_seconds: VISIBILITY_SECONDS
           });
-          
+
           if (claimError) {
             console.error(`[poll] claim_processing_job RPC failed:`, claimError);
             break; // RPC error - log and stop
           }
-          
+
           if (!claimedJob || claimedJob.length === 0) {
             console.log(`[poll] No more pending jobs to claim after ${claimedCount} claims`);
             break; // No more jobs to claim
           }
-          
+
           const job = claimedJob[0];
           console.log(`[poll] Worker ${workerId} claimed job ${job.job_id} (step: ${job.step})`);
-          
+
           // Fetch full job data with course info
           const { data: fullJob } = await supabase
             .from("processing_queue")
             .select("*, courses(*)")
             .eq("id", job.job_id)
             .single();
-          
+
           if (fullJob) {
             // Process in background, passing the worker ID for proper completion
             (globalThis as any).EdgeRuntime?.waitUntil?.(
@@ -2263,7 +2263,7 @@ serve(async (req) => {
             claimedCount++;
           }
         }
-        
+
         if (claimedCount === 0) {
           return new Response(JSON.stringify({ message: "No pending jobs" }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2278,7 +2278,7 @@ serve(async (req) => {
       // ============ PROCESS SPECIFIC JOB (called by cron-poll-queue) ============
       case "process-job": {
         const { jobId, step, metadata, workerId } = body;
-        
+
         if (!jobId || !courseId) {
           return new Response(JSON.stringify({ error: "Missing jobId or courseId" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2286,7 +2286,7 @@ serve(async (req) => {
         }
 
         console.log(`[process-job] Processing job ${jobId} (step: ${step}, course: ${courseId}, worker: ${workerId})`);
-        
+
         // Fetch the job to verify it's still claimed by this worker
         const { data: job, error: jobError } = await supabase
           .from("processing_queue")
@@ -2314,9 +2314,9 @@ serve(async (req) => {
         // This is critical for 2+ hour videos that may take 30-60 minutes to process
         const VISIBILITY_EXTENSION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
         const VISIBILITY_EXTENSION_SECONDS = 900; // 15 minutes each extension
-        
+
         let visibilityExtenderInterval: number | null = null;
-        
+
         const startVisibilityExtender = () => {
           visibilityExtenderInterval = setInterval(async () => {
             try {
@@ -2335,7 +2335,7 @@ serve(async (req) => {
             }
           }, VISIBILITY_EXTENSION_INTERVAL_MS);
         };
-        
+
         const stopVisibilityExtender = () => {
           if (visibilityExtenderInterval !== null) {
             clearInterval(visibilityExtenderInterval);
@@ -2349,22 +2349,22 @@ serve(async (req) => {
         // Process the job using the atomic worker function
         try {
           await processJobWithWorker(supabase, job, workerId);
-          
+
           // Stop visibility extender (processJobWithWorker handles completion internally)
           stopVisibilityExtender();
-          
+
           console.log(`[process-job] Job ${jobId} completed successfully`);
-          
-          return new Response(JSON.stringify({ 
-            success: true, 
+
+          return new Response(JSON.stringify({
+            success: true,
             jobId,
             message: "Job processed and completed"
           }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-          
+
         } catch (processError) {
           // Stop visibility extender on failure too
           stopVisibilityExtender();
-          
+
           const errorMessage = processError instanceof Error ? processError.message : 'Unknown processing error';
           console.error(`[process-job] Job ${jobId} failed:`, errorMessage);
 
@@ -2378,7 +2378,7 @@ serve(async (req) => {
           const currentAttempts = jobMeta?.attempt_count ?? 0;
           const maxAttempts = jobMeta?.max_attempts ?? 3;
           const shouldRetry = !isPermanentMissingFileError(errorMessage) && currentAttempts < maxAttempts;
-          
+
           // Fail the job (will auto-retry if under max attempts)
           await supabase.rpc('fail_processing_job', {
             p_job_id: jobId,
@@ -2386,9 +2386,9 @@ serve(async (req) => {
             p_error_message: normalizedError,
             p_should_retry: shouldRetry
           });
-          
-          return new Response(JSON.stringify({ 
-            success: false, 
+
+          return new Response(JSON.stringify({
+            success: false,
             jobId,
             error: errorMessage
           }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -2428,18 +2428,18 @@ serve(async (req) => {
                 .select("status")
                 .eq("id", job.course_id)
                 .single();
-              
+
               if (courseData?.status === 'completed') {
                 // Course is completed - just purge the stale queue job, don't reset course
                 await supabase.from("processing_queue").update({
                   purged: true,
                   error_message: "Stale job - course already completed",
                 }).eq("id", job.id);
-                
+
                 console.log(`[watchdog] Skipped recovery - course ${job.course_id} already completed, purged stale job`);
                 continue; // Don't count as recovered, just cleanup
               }
-              
+
               // Reset job to pending for retry
               await supabase.from("processing_queue").update({
                 status: "pending",
@@ -2472,24 +2472,24 @@ serve(async (req) => {
                 .select("status, frame_urls, transcript")
                 .eq("id", job.course_id)
                 .single();
-              
-              const hasFrames = courseData?.frame_urls && 
-                Array.isArray(courseData.frame_urls) && 
+
+              const hasFrames = courseData?.frame_urls &&
+                Array.isArray(courseData.frame_urls) &&
                 courseData.frame_urls.length > 0;
-              const hasTranscript = courseData?.transcript && 
+              const hasTranscript = courseData?.transcript &&
                 Object.keys(courseData.transcript).length > 0;
               const alreadyCompleted = courseData?.status === 'completed';
-              
+
               // If data is complete, don't send failure email - course is actually OK
               if (alreadyCompleted || (hasFrames && hasTranscript)) {
                 console.log(`[watchdog] Job ${job.id} timed out but course has complete data (frames: ${hasFrames}, transcript: ${hasTranscript}, status: ${courseData?.status}). Skipping failure email.`);
-                
+
                 // Mark job as completed (not failed) since data exists
                 await supabase.from("processing_queue").update({
                   status: "completed",
                   error_message: `Job timed out but data was already complete via webhook`,
                 }).eq("id", job.id);
-                
+
                 // Ensure course is marked completed if it has all data
                 if (!alreadyCompleted && hasFrames && hasTranscript) {
                   await supabase.from("courses").update({
@@ -2544,11 +2544,11 @@ serve(async (req) => {
           for (const row of stuckIntermediate) {
             if (!row.next_step) continue;
 
-            const queueResult = await insertQueueEntry(supabase, row.course_id, row.next_step, { 
-              autoRecovery: true, 
-              detectedBy: "process-course.watchdog" 
+            const queueResult = await insertQueueEntry(supabase, row.course_id, row.next_step, {
+              autoRecovery: true,
+              detectedBy: "process-course.watchdog"
             });
-            
+
             if (queueResult.success) {
               recoveredIntermediate++;
             } else {
@@ -2565,7 +2565,7 @@ serve(async (req) => {
             .select('id')
             .is('processed_at', null)
             .limit(100);
-          
+
           outboxProcessed = pendingEvents?.length || 0;
           if (outboxProcessed > 0) {
             console.log(`[watchdog] Processing ${outboxProcessed} pending outbox events...`);
@@ -2584,7 +2584,7 @@ serve(async (req) => {
             .lt('expires_at', new Date().toISOString())
             .is('released_at', null)
             .select();
-          
+
           leasesCleanedUp = expiredLeases?.length || 0;
           if (leasesCleanedUp > 0) {
             console.log(`[watchdog] Cleaned up ${leasesCleanedUp} expired leases`);
@@ -2618,7 +2618,7 @@ serve(async (req) => {
 
             if (!activeJobs || activeJobs.length === 0) {
               console.log(`[watchdog] Course ${course.id} stuck at ${course.progress}% with no active jobs, recovering...`);
-              
+
               // Determine what step to queue based on completed jobs
               const { data: completedJobs } = await supabase
                 .from("processing_queue")
@@ -2645,7 +2645,7 @@ serve(async (req) => {
 
                 if (queuedModules?.length) {
                   nextStep = "transcribe_and_extract_module";
-                  await insertQueueEntry(supabase, course.id, nextStep, { 
+                  await insertQueueEntry(supabase, course.id, nextStep, {
                     moduleNumber: queuedModules[0].module_number,
                     autoRecovery: true,
                     detectedBy: "watchdog.stuck_progress"
@@ -2663,7 +2663,7 @@ serve(async (req) => {
                 }
 
                 if (nextStep) {
-                  const queueResult = await insertQueueEntry(supabase, course.id, nextStep, { 
+                  const queueResult = await insertQueueEntry(supabase, course.id, nextStep, {
                     autoRecovery: true,
                     detectedBy: "watchdog.stuck_progress",
                     progress: course.progress
@@ -2722,7 +2722,7 @@ serve(async (req) => {
         const pending = stats?.filter((s: any) => s.status === "pending").length || 0;
         const processing = stats?.filter((s: any) => s.status === "processing").length || 0;
 
-        return new Response(JSON.stringify({ 
+        return new Response(JSON.stringify({
           healthy: true,
           pending,
           processing,
@@ -2983,7 +2983,7 @@ serve(async (req) => {
         // CRITICAL: Also purge any processing_queue entries related to this module's course
         // This prevents the watchdog from re-kicking jobs for purged modules
         const courseId = module.course_id;
-        
+
         // Check if there are any non-purged modules left for this course
         const { data: remainingModules } = await supabase
           .from("course_modules")
@@ -2992,12 +2992,12 @@ serve(async (req) => {
           .eq("purged", false);
 
         const hasRemainingModules = remainingModules && remainingModules.length > 0;
-        
+
         // Purge any pending/processing queue entries for this course if no modules remain
         // This prevents zombie jobs from being kicked by the watchdog
         if (!hasRemainingModules) {
           console.log(`[delete-module] All modules deleted for course ${courseId}, purging parent course and queue entries`);
-          
+
           // Purge all processing_queue entries for this course (set status to 'failed' since 'cancelled' isn't valid)
           await supabase
             .from("processing_queue")
@@ -3042,15 +3042,15 @@ serve(async (req) => {
       case "process-outbox": {
         console.log('[process-outbox] Processing pending events...');
         await processOutboxEvents(supabase);
-        
+
         // Get count of remaining unprocessed events
         const { data: pendingEvents } = await supabase
           .from('processing_events')
           .select('id')
           .is('processed_at', null)
           .limit(100);
-        
-        return new Response(JSON.stringify({ 
+
+        return new Response(JSON.stringify({
           success: true,
           pendingEvents: pendingEvents?.length || 0
         }), {
@@ -3064,7 +3064,7 @@ serve(async (req) => {
       case "get-export-data": {
         const { email, moduleNumber } = body;
         const MAX_EXPORT_FRAMES = 300;
-        
+
         // Helper: sample frames evenly across the array to represent full video duration
         const sampleFramesEvenly = (frames: string[], maxFrames: number): string[] => {
           if (!Array.isArray(frames) || frames.length <= maxFrames) return frames || [];
@@ -3076,7 +3076,7 @@ serve(async (req) => {
           }
           return sampled;
         };
-        
+
         if (!courseId || !email) {
           return new Response(JSON.stringify({ error: "Missing courseId or email" }), {
             status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -3117,7 +3117,7 @@ serve(async (req) => {
           const hasTranscript = Array.isArray(module.transcript) && module.transcript.length > 0;
           const hasFrames = rawFrameUrls.length > 0;
           const isPartial = module.status !== 'completed';
-          
+
           // Sample frames evenly to prevent huge payloads
           const sampledFrameUrls = sampleFramesEvenly(rawFrameUrls, MAX_EXPORT_FRAMES);
           console.log(`[get-export-data] Module ${moduleNumber}: ${rawFrameUrls.length} total frames -> ${sampledFrameUrls.length} sampled`);
@@ -3173,7 +3173,7 @@ serve(async (req) => {
             .order("module_number");
 
           // Find first module with data
-          const moduleWithData = modules?.find((m: any) => 
+          const moduleWithData = modules?.find((m: any) =>
             (Array.isArray(m.transcript) && m.transcript.length > 0) ||
             (Array.isArray(m.frame_urls) && m.frame_urls.length > 0)
           );
@@ -3193,7 +3193,7 @@ serve(async (req) => {
             };
           }
         }
-        
+
         console.log(`[get-export-data] Course ${courseId}: ${totalFrameCount} total frames -> ${exportData.frame_urls.length} sampled`);
 
         return new Response(JSON.stringify({
@@ -3231,9 +3231,9 @@ serve(async (req) => {
 async function processNextStep(supabase: any, courseId: string) {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  
+
   console.log(`[processNextStep] Triggering immediate processing for course ${courseId}`);
-  
+
   // Direct fetch is more reliable than supabase.functions.invoke inside edge functions
   try {
     const response = await fetch(`${supabaseUrl}/functions/v1/process-course`, {
@@ -3244,7 +3244,7 @@ async function processNextStep(supabase: any, courseId: string) {
       },
       body: JSON.stringify({ action: 'poll' })
     });
-    
+
     if (response.ok) {
       const result = await response.json();
       console.log(`[processNextStep] Poll triggered successfully:`, result);
@@ -3284,7 +3284,7 @@ async function processJobWithWorker(supabase: any, job: any, workerId: string) {
   // Start visibility extension interval (every 5 minutes)
   const VISIBILITY_EXTENSION_INTERVAL_MS = 5 * 60 * 1000;
   const VISIBILITY_EXTENSION_SECONDS = 900;
-  
+
   const visibilityExtender = setInterval(async () => {
     try {
       const { data: extended } = await supabase.rpc('extend_job_visibility', {
@@ -3306,17 +3306,17 @@ async function processJobWithWorker(supabase: any, job: any, workerId: string) {
 
   // Update course heartbeat immediately
   await updateCourseHeartbeat(supabase, courseId);
-  
+
   // If this is a module job, also update module heartbeat
   if (moduleId) {
     await updateModuleHeartbeat(supabase, moduleId);
   }
 
   // Structured logging
-  const logJobId = fixMetadata?.moduleNumber 
-    ? getJobIdForModule(courseId, fixMetadata.moduleNumber) 
+  const logJobId = fixMetadata?.moduleNumber
+    ? getJobIdForModule(courseId, fixMetadata.moduleNumber)
     : getJobIdForCourse(courseId);
-  
+
   await logJobEvent(supabase, logJobId, {
     step: 'worker_start',
     level: 'info',
@@ -3407,7 +3407,7 @@ async function processJobWithWorker(supabase: any, job: any, workerId: string) {
     // Cleanup on error
     clearInterval(visibilityExtender);
     clearInterval(heartbeatInterval);
-    
+
     // Handle webhook awaiting gracefully
     if (error instanceof Error && error.name === "AwaitWebhookSignal") {
       console.log(`[processJobWithWorker] Job ${jobId} awaiting webhooks - exiting gracefully`);
@@ -3416,7 +3416,7 @@ async function processJobWithWorker(supabase: any, job: any, workerId: string) {
       }
       return;
     }
-    
+
     if (userEmail) {
       await decrementActiveJobs(supabase, userEmail);
     }
@@ -3453,17 +3453,17 @@ async function getModuleIdFromNumber(supabase: any, courseId: string, moduleNumb
 function getNextStep(current: string, metadata?: any): { step: string | null; metadata?: any } {
   // Single video steps - check if we should skip frame extraction
   const skipFrameExtraction = metadata?.skipFrameExtraction || metadata?.hasPreExtractedFrames;
-  
+
   // PARALLEL PROCESSING: After transcribe_and_extract completes, go to analyze_audio
   if (current === "transcribe_and_extract") {
     return { step: "analyze_audio", metadata };
   }
-  
+
   // Legacy support: if transcribe completes and we have pre-extracted frames, skip to analyze_audio
   if (current === "transcribe" && skipFrameExtraction) {
     return { step: "analyze_audio", metadata };
   }
-  
+
   // Legacy sequential pipeline (for backwards compatibility)
   // transcribe -> extract_frames -> analyze_audio -> train_ai
   const singleSteps = ["transcribe", "extract_frames", "analyze_audio", "train_ai"];
@@ -3552,7 +3552,7 @@ async function stepExtractFramesModule(supabase: any, courseId: string, moduleNu
 // ============ MULTI-VIDEO MODULE STITCHING ============
 async function stepStitchVideos(supabase: any, courseId: string, moduleNumber: number, fixMetadata?: any) {
   console.log(`[stitch_videos] Starting stitch for course ${courseId}, module ${moduleNumber}`);
-  
+
   const { data: module } = await supabase
     .from("course_modules")
     .select("*, courses(*)")
@@ -3561,9 +3561,9 @@ async function stepStitchVideos(supabase: any, courseId: string, moduleNumber: n
     .single();
 
   if (!module) throw new Error(`Module ${moduleNumber} not found`);
-  
+
   const sourceVideos = fixMetadata?.sourceVideos || module.source_videos;
-  
+
   if (!sourceVideos || sourceVideos.length <= 1) {
     // No stitching needed - just proceed to transcribe
     console.log(`[stitch_videos] Module ${moduleNumber} has single video, skipping stitch`);
@@ -3584,7 +3584,7 @@ async function stepStitchVideos(supabase: any, courseId: string, moduleNumber: n
   // Full stitching would require FFmpeg/Replicate integration
   const sortedVideos = [...sourceVideos].sort((a: any, b: any) => (a.order || 0) - (b.order || 0));
   const primaryVideo = sortedVideos[0];
-  
+
   console.log(`[stitch_videos] Module ${moduleNumber}: ${sourceVideos.length} videos, using primary: ${primaryVideo.filename}`);
 
   // Mark stitch as complete with primary video
@@ -3642,7 +3642,7 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
     progress: 100,
     completed_at: new Date().toISOString(),
   }).eq("id", module.id);
-  
+
   // Generate PDF data for this module (fire-and-forget, non-blocking)
   try {
     console.log(`[stepTrainAiModule] Generating PDF data for module ${moduleNumber}`);
@@ -3655,7 +3655,7 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
       },
       body: JSON.stringify({ moduleId: module.id })
     });
-    
+
     if (response.ok) {
       const result = await response.json();
       console.log(`[stepTrainAiModule] PDF data generated for module ${moduleNumber}:`, result.success);
@@ -3666,7 +3666,7 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
     // Non-fatal - module is complete, PDF can be generated on-demand
     console.warn(`[stepTrainAiModule] PDF generation failed (non-fatal):`, pdfError);
   }
-  
+
   // ZERO-KNOWLEDGE PURGE: Delete source video immediately after frame extraction
   // We retain only derivatives (frames), not the original content
   await purgeSourceVideo(supabase, module.video_url, courseId, module.id);
@@ -3679,7 +3679,7 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
     .single();
 
   const newCompleted = (course.completed_modules || 0) + 1;
-  
+
   if (newCompleted >= course.module_count) {
     // All modules complete
     await supabase.from("courses").update({
@@ -3688,14 +3688,14 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
       progress: 100,
       completed_at: new Date().toISOString(),
     }).eq("id", courseId);
-    
+
     // EVENT OUTBOX: Emit course_completed event for reliable email delivery
     await emitProcessingEvent(supabase, 'course_completed', 'course', courseId, {
       email: course.email,
       courseTitle: course.title,
       courseId
     });
-    
+
     // Process outbox immediately (fire-and-forget, will retry on next poll if fails)
     processOutboxEvents(supabase).catch(e => console.warn('[outbox] Background processing failed:', e));
   } else {
@@ -3711,7 +3711,7 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
     const currentActiveJobs = activeCount || 0;
     const MAX_PARALLEL_MODULES = 3;
     const slotsAvailable = MAX_PARALLEL_MODULES - currentActiveJobs;
-    
+
     if (slotsAvailable > 0) {
       // Find pending modules that aren't already queued
       const { data: pendingModules } = await supabase
@@ -3721,11 +3721,11 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
         .eq("status", "queued")
         .order("module_number", { ascending: true })
         .limit(slotsAvailable);
-      
+
       // Queue the pending modules
       if (pendingModules && pendingModules.length > 0) {
         console.log(`[stepTrainAiModule] PARALLEL: Queueing ${pendingModules.length} more modules (${slotsAvailable} slots available)`);
-        
+
         for (const mod of pendingModules) {
           // Check if this module is already in the queue
           const { data: existingJob } = await supabase
@@ -3736,10 +3736,10 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
             .eq("status", "pending")
             .contains("metadata", { moduleNumber: mod.module_number })
             .maybeSingle();
-          
+
           if (!existingJob) {
-            const queueResult = await insertQueueEntry(supabase, courseId, "transcribe_and_extract_module", { 
-              moduleNumber: mod.module_number 
+            const queueResult = await insertQueueEntry(supabase, courseId, "transcribe_and_extract_module", {
+              moduleNumber: mod.module_number
             });
             if (queueResult.success) {
               console.log(`[stepTrainAiModule] PARALLEL: Queued module ${mod.module_number}`);
@@ -3760,7 +3760,7 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
       totalModules: course.module_count,
       courseId
     });
-    
+
     // Process outbox immediately
     processOutboxEvents(supabase).catch(e => console.warn('[outbox] Background processing failed:', e));
   }
@@ -3771,9 +3771,9 @@ async function stepTrainAiModule(supabase: any, courseId: string, moduleNumber: 
 // Webhook-based transcription - no polling, returns immediately
 // The assemblyai-webhook function handles completion callbacks
 async function transcribeVideoWithWebhook(
-  supabase: any, 
-  recordId: string, 
-  videoUrl: string, 
+  supabase: any,
+  recordId: string,
+  videoUrl: string,
   tableName: string,
   courseId: string,
   moduleNumber?: number,
@@ -3792,7 +3792,7 @@ async function transcribeVideoWithWebhook(
   const logJobId = tableName === 'courses' ? getJobIdForCourse(recordId) : `module-${recordId.slice(0, 8)}`;
 
   console.log(`[transcribeVideoWithWebhook] Using signed URL: ${directVideoUrl.substring(0, 80)}...`);
-  
+
   await logJobEvent(supabase, logJobId, {
     step: 'transcription_webhook_start',
     level: 'info',
@@ -3881,7 +3881,7 @@ async function transcribeVideo(supabase: any, recordId: string, videoUrl: string
   const logJobId = tableName === 'courses' ? getJobIdForCourse(recordId) : `module-${recordId.slice(0, 8)}`;
 
   console.log(`[transcribeVideo] Using URL: ${directVideoUrl.substring(0, 80)}...`);
-  
+
   // STRUCTURED LOGGING: Log transcription start
   await logJobEvent(supabase, logJobId, {
     step: 'transcription_start',
@@ -3918,122 +3918,122 @@ async function transcribeVideo(supabase: any, recordId: string, videoUrl: string
 
     console.log(`[transcribeVideo] AssemblyAI job started: ${transcriptId}`);
 
-  // Poll for completion with heartbeat updates
-  // 2+ hour videos can take 20-40 minutes to transcribe
-  // 600 attempts × 3 second = 30 minutes max polling
-  let attempts = 0;
-  const maxAttempts = 600; // Doubled for 2+ hour videos
-  const startTime = Date.now();
-  let lastHeartbeat = Date.now();
-  const HEARTBEAT_INTERVAL = 30000; // Update DB every 30 seconds
+    // Poll for completion with heartbeat updates
+    // 2+ hour videos can take 20-40 minutes to transcribe
+    // 600 attempts × 3 second = 30 minutes max polling
+    let attempts = 0;
+    const maxAttempts = 600; // Doubled for 2+ hour videos
+    const startTime = Date.now();
+    let lastHeartbeat = Date.now();
+    const HEARTBEAT_INTERVAL = 30000; // Update DB every 30 seconds
 
-  // Pre-fetch course_id for modules to avoid repeated queries during heartbeats
-  let parentCourseId: string | null = null;
-  if (tableName === 'course_modules') {
-    const { data: mod } = await supabase.from("course_modules").select("course_id").eq("id", recordId).single();
-    parentCourseId = mod?.course_id || null;
-  }
-
-  while (attempts < maxAttempts) {
-    await new Promise((r) => setTimeout(r, 3000));
-
-    const statusResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
-      headers: { "Authorization": ASSEMBLYAI_API_KEY },
-    });
-
-    if (!statusResponse.ok) {
-      // Retry on transient errors instead of failing
-      if (statusResponse.status >= 500) {
-        console.warn(`[transcribeVideo] AssemblyAI server error ${statusResponse.status}, retrying...`);
-        attempts++;
-        continue;
-      }
-      throw new Error(`AssemblyAI status check failed: ${statusResponse.status}`);
+    // Pre-fetch course_id for modules to avoid repeated queries during heartbeats
+    let parentCourseId: string | null = null;
+    if (tableName === 'course_modules') {
+      const { data: mod } = await supabase.from("course_modules").select("course_id").eq("id", recordId).single();
+      parentCourseId = mod?.course_id || null;
     }
 
-    const statusData = await statusResponse.json();
+    while (attempts < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 3000));
 
-    if (statusData.status === "completed") {
-      const segments: TranscriptSegment[] = statusData.utterances?.map((u: any) => ({
-        start: u.start / 1000,
-        end: u.end / 1000,
-        text: u.text,
-      })) || [];
-
-      await supabase.from(tableName).update({
-        transcript: segments,
-        video_duration_seconds: statusData.audio_duration,
-        progress: 20,
-      }).eq("id", recordId);
-
-      console.log(`[transcribeVideo] Completed with ${segments.length} segments, duration: ${statusData.audio_duration}s`);
-      
-      // STRUCTURED LOGGING: Log transcription completion
-      await logJobEvent(supabase, logJobId, {
-        step: 'transcription_complete',
-        level: 'info',
-        message: `Transcription completed: ${segments.length} segments, ${statusData.audio_duration}s duration`,
-        metadata: {
-          record_id: recordId,
-          segment_count: segments.length,
-          duration_seconds: statusData.audio_duration,
-          poll_attempts: attempts,
-        }
+      const statusResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
+        headers: { "Authorization": ASSEMBLYAI_API_KEY },
       });
-      
-      return;
-    }
 
-    if (statusData.status === "error") {
-      throw new Error(statusData.error || "Transcription failed");
-    }
-
-    attempts++;
-    const progress = 5 + Math.min(attempts * 0.025, 15); // Slower progress for longer videos
-    
-    // Heartbeat update every 30 seconds to prevent appearing stuck
-    const now = Date.now();
-    if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
-      await supabase.from(tableName).update({ progress: Math.floor(progress) }).eq("id", recordId);
-      
-      // Update heartbeats + processing_queue.started_at to prevent watchdog from killing us
-      if (tableName === 'courses') {
-        await updateCourseHeartbeat(supabase, recordId);
-        await supabase.from("processing_queue")
-          .update({ started_at: new Date().toISOString() })
-          .eq("course_id", recordId)
-          .eq("status", "processing")
-          .in("step", ["transcribe", "transcribe_and_extract"]);
-      } else if (parentCourseId) {
-        await updateModuleHeartbeat(supabase, recordId);
-        await updateCourseHeartbeat(supabase, parentCourseId);
-        await supabase.from("processing_queue")
-          .update({ started_at: new Date().toISOString() })
-          .eq("course_id", parentCourseId)
-          .eq("status", "processing")
-          .in("step", ["transcribe_module", "transcribe_and_extract_module"]);
-      }
-      
-      // STRUCTURED LOGGING: Log heartbeat for forensics
-      await logJobEvent(supabase, logJobId, {
-        step: 'transcription_heartbeat',
-        level: 'info',
-        message: `Transcription in progress`,
-        metadata: {
-          record_id: recordId,
-          attempt: attempts,
-          max_attempts: maxAttempts,
-          status: statusData.status,
-          elapsed_seconds: Math.floor((now - startTime) / 1000),
+      if (!statusResponse.ok) {
+        // Retry on transient errors instead of failing
+        if (statusResponse.status >= 500) {
+          console.warn(`[transcribeVideo] AssemblyAI server error ${statusResponse.status}, retrying...`);
+          attempts++;
+          continue;
         }
-      }).catch(() => {}); // Don't fail on log errors
-      
-      lastHeartbeat = now;
-      console.log(`[transcribeVideo] Heartbeat: attempt ${attempts}/${maxAttempts}, status: ${statusData.status}`);
-    }
-  }
+        throw new Error(`AssemblyAI status check failed: ${statusResponse.status}`);
+      }
 
-  throw new Error(`Transcription timeout after ${maxAttempts * 3 / 60} minutes`);
+      const statusData = await statusResponse.json();
+
+      if (statusData.status === "completed") {
+        const segments: TranscriptSegment[] = statusData.utterances?.map((u: any) => ({
+          start: u.start / 1000,
+          end: u.end / 1000,
+          text: u.text,
+        })) || [];
+
+        await supabase.from(tableName).update({
+          transcript: segments,
+          video_duration_seconds: statusData.audio_duration,
+          progress: 20,
+        }).eq("id", recordId);
+
+        console.log(`[transcribeVideo] Completed with ${segments.length} segments, duration: ${statusData.audio_duration}s`);
+
+        // STRUCTURED LOGGING: Log transcription completion
+        await logJobEvent(supabase, logJobId, {
+          step: 'transcription_complete',
+          level: 'info',
+          message: `Transcription completed: ${segments.length} segments, ${statusData.audio_duration}s duration`,
+          metadata: {
+            record_id: recordId,
+            segment_count: segments.length,
+            duration_seconds: statusData.audio_duration,
+            poll_attempts: attempts,
+          }
+        });
+
+        return;
+      }
+
+      if (statusData.status === "error") {
+        throw new Error(statusData.error || "Transcription failed");
+      }
+
+      attempts++;
+      const progress = 5 + Math.min(attempts * 0.025, 15); // Slower progress for longer videos
+
+      // Heartbeat update every 30 seconds to prevent appearing stuck
+      const now = Date.now();
+      if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
+        await supabase.from(tableName).update({ progress: Math.floor(progress) }).eq("id", recordId);
+
+        // Update heartbeats + processing_queue.started_at to prevent watchdog from killing us
+        if (tableName === 'courses') {
+          await updateCourseHeartbeat(supabase, recordId);
+          await supabase.from("processing_queue")
+            .update({ started_at: new Date().toISOString() })
+            .eq("course_id", recordId)
+            .eq("status", "processing")
+            .in("step", ["transcribe", "transcribe_and_extract"]);
+        } else if (parentCourseId) {
+          await updateModuleHeartbeat(supabase, recordId);
+          await updateCourseHeartbeat(supabase, parentCourseId);
+          await supabase.from("processing_queue")
+            .update({ started_at: new Date().toISOString() })
+            .eq("course_id", parentCourseId)
+            .eq("status", "processing")
+            .in("step", ["transcribe_module", "transcribe_and_extract_module"]);
+        }
+
+        // STRUCTURED LOGGING: Log heartbeat for forensics
+        await logJobEvent(supabase, logJobId, {
+          step: 'transcription_heartbeat',
+          level: 'info',
+          message: `Transcription in progress`,
+          metadata: {
+            record_id: recordId,
+            attempt: attempts,
+            max_attempts: maxAttempts,
+            status: statusData.status,
+            elapsed_seconds: Math.floor((now - startTime) / 1000),
+          }
+        }).catch(() => { }); // Don't fail on log errors
+
+        lastHeartbeat = now;
+        console.log(`[transcribeVideo] Heartbeat: attempt ${attempts}/${maxAttempts}, status: ${statusData.status}`);
+      }
+    }
+
+    throw new Error(`Transcription timeout after ${maxAttempts * 3 / 60} minutes`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : "Unknown error";
     if (errorMsg.toLowerCase().includes("no audio") || errorMsg.toLowerCase().includes("audio_url")) {
@@ -4052,11 +4052,11 @@ async function transcribeVideo(supabase: any, recordId: string, videoUrl: string
 // Webhook-based frame extraction - no polling, returns immediately
 // The replicate-webhook function handles completion callbacks
 async function extractFramesWithWebhook(
-  supabase: any, 
-  recordId: string, 
-  videoUrl: string, 
-  fps: number, 
-  tableName: string, 
+  supabase: any,
+  recordId: string,
+  videoUrl: string,
+  fps: number,
+  tableName: string,
   courseId: string,
   moduleNumber?: number,
   step?: string,
@@ -4086,7 +4086,7 @@ async function extractFramesWithWebhook(
   const modelResponse = await fetch("https://api.replicate.com/v1/models/fofr/video-to-frames", {
     headers: { "Authorization": `Bearer ${REPLICATE_API_KEY}` },
   });
-  
+
   if (!modelResponse.ok) throw new Error(`Failed to fetch model info: ${modelResponse.status}`);
   const modelData = await modelResponse.json();
   const latestVersionId = modelData.latest_version?.id;
@@ -4094,7 +4094,7 @@ async function extractFramesWithWebhook(
 
   // Build webhook URL
   const webhookUrl = `${supabaseUrl}/functions/v1/replicate-webhook`;
-  
+
   // Webhook metadata is passed through Replicate's input and returned in the callback
   const webhookMetadata = {
     courseId,
@@ -4109,7 +4109,7 @@ async function extractFramesWithWebhook(
   let prediction = null;
   let retryAttempts = 0;
   const maxRetries = fixMetadata?.extendedDelay ? 15 : 10;
-  
+
   while (!prediction && retryAttempts < maxRetries) {
     try {
       // Create prediction with webhook
@@ -4121,9 +4121,9 @@ async function extractFramesWithWebhook(
         },
         body: JSON.stringify({
           version: latestVersionId,
-          input: { 
-            video: directVideoUrl, 
-            fps: fps, 
+          input: {
+            video: directVideoUrl,
+            fps: fps,
             width: resolution,
             webhook_metadata: webhookMetadata,
           },
@@ -4136,7 +4136,7 @@ async function extractFramesWithWebhook(
         const errorText = await createResponse.text();
         const statusCode = createResponse.status;
         const isRetryable = statusCode === 429 || statusCode === 502 || statusCode === 503 || statusCode === 504;
-        
+
         if (isRetryable) {
           throw { response: { status: statusCode }, message: errorText };
         }
@@ -4148,22 +4148,22 @@ async function extractFramesWithWebhook(
       const statusCode = error?.response?.status || error?.status;
       const errorMsg = error?.message?.toLowerCase() || '';
       const isRetryable = statusCode === 429 || statusCode === 502 || statusCode === 503 || statusCode === 504 ||
-                          errorMsg.includes('bad gateway') || errorMsg.includes('gateway') || 
-                          errorMsg.includes('timeout') || errorMsg.includes('network');
-      
+        errorMsg.includes('bad gateway') || errorMsg.includes('gateway') ||
+        errorMsg.includes('timeout') || errorMsg.includes('network');
+
       if (isRetryable && retryAttempts < maxRetries - 1) {
         const isGatewayError = statusCode === 502 || statusCode === 503 || errorMsg.includes('gateway');
         const baseDelay = isGatewayError ? 15000 : (fixMetadata?.extendedDelay ? 30000 : 10000);
         const delay = baseDelay * Math.pow(1.5, retryAttempts);
         console.log(`[extractFramesWithWebhook] Retryable error (status=${statusCode}), attempt ${retryAttempts + 1}/${maxRetries}, waiting ${delay}ms...`);
-        
+
         await logJobEvent(supabase, logJobId, {
           step: 'frame_extraction_webhook_retry',
           level: 'warn',
-          message: `Replicate API error, retrying in ${Math.round(delay/1000)}s`,
+          message: `Replicate API error, retrying in ${Math.round(delay / 1000)}s`,
           metadata: { status_code: statusCode, attempt: retryAttempts + 1, max_retries: maxRetries }
-        }).catch(() => {});
-        
+        }).catch(() => { });
+
         await new Promise(r => setTimeout(r, delay));
         retryAttempts++;
       } else {
@@ -4245,7 +4245,7 @@ async function extractFrames(supabase: any, recordId: string, videoUrl: string, 
   const modelResponse = await fetch("https://api.replicate.com/v1/models/fofr/video-to-frames", {
     headers: { "Authorization": `Bearer ${REPLICATE_API_KEY}` },
   });
-  
+
   if (!modelResponse.ok) throw new Error(`Failed to fetch model info: ${modelResponse.status}`);
   const modelData = await modelResponse.json();
   const latestVersionId = modelData.latest_version?.id;
@@ -4255,7 +4255,7 @@ async function extractFrames(supabase: any, recordId: string, videoUrl: string, 
   let prediction = null;
   let retryAttempts = 0;
   const maxRetries = fixMetadata?.extendedDelay ? 15 : 10;
-  
+
   while (!prediction && retryAttempts < maxRetries) {
     try {
       prediction = await replicate.predictions.create({
@@ -4266,23 +4266,23 @@ async function extractFrames(supabase: any, recordId: string, videoUrl: string, 
       const statusCode = error?.response?.status || error?.status;
       const errorMsg = error?.message?.toLowerCase() || '';
       const isRetryable = statusCode === 429 || statusCode === 502 || statusCode === 503 || statusCode === 504 ||
-                          errorMsg.includes('bad gateway') || errorMsg.includes('gateway') || 
-                          errorMsg.includes('timeout') || errorMsg.includes('network');
-      
+        errorMsg.includes('bad gateway') || errorMsg.includes('gateway') ||
+        errorMsg.includes('timeout') || errorMsg.includes('network');
+
       if (isRetryable) {
         // Use longer delays for gateway errors (service needs time to recover)
         const isGatewayError = statusCode === 502 || statusCode === 503 || errorMsg.includes('gateway');
         const baseDelay = isGatewayError ? 15000 : (fixMetadata?.extendedDelay ? 30000 : 10000);
         const delay = baseDelay * Math.pow(1.5, retryAttempts);
         console.log(`[extractFrames] Retryable error (status=${statusCode}), attempt ${retryAttempts + 1}/${maxRetries}, waiting ${delay}ms...`);
-        
+
         await logJobEvent(supabase, logJobId, {
           step: 'frame_extraction_retry',
           level: 'warn',
-          message: `Replicate API error, retrying in ${Math.round(delay/1000)}s`,
+          message: `Replicate API error, retrying in ${Math.round(delay / 1000)}s`,
           metadata: { status_code: statusCode, attempt: retryAttempts + 1, max_retries: maxRetries, error_message: errorMsg.slice(0, 200) }
-        }).catch(() => {});
-        
+        }).catch(() => { });
+
         await new Promise(r => setTimeout(r, delay));
         retryAttempts++;
       } else {
@@ -4308,25 +4308,25 @@ async function extractFrames(supabase: any, recordId: string, videoUrl: string, 
     const { data: mod } = await supabase.from("course_modules").select("course_id").eq("id", recordId).single();
     parentCourseId = mod?.course_id || null;
   }
-  
+
   while (result.status !== "succeeded" && result.status !== "failed") {
     const elapsed = Date.now() - startTime;
     if (elapsed > maxWaitTime) throw new Error("Frame extraction timeout");
-    
+
     await new Promise((r) => setTimeout(r, 5000));
     result = await replicate.predictions.get(prediction.id);
     pollCount++;
-    
+
     // Heartbeat update - update progress periodically to prevent appearing stuck
     const now = Date.now();
     if (now - lastHeartbeat > HEARTBEAT_INTERVAL) {
       // Calculate progress between 25-50% based on time elapsed (assume max 30 min for extraction)
       const estimatedProgress = 25 + Math.min(25, (elapsed / 1800000) * 25);
-      
-      await supabase.from(tableName).update({ 
+
+      await supabase.from(tableName).update({
         progress: Math.floor(estimatedProgress),
       }).eq("id", recordId);
-      
+
       // Update heartbeats + processing_queue.started_at to prevent watchdog from killing us
       if (tableName === 'courses') {
         await updateCourseHeartbeat(supabase, recordId);
@@ -4344,7 +4344,7 @@ async function extractFrames(supabase: any, recordId: string, videoUrl: string, 
           .eq("status", "processing")
           .in("step", ["extract_frames_module", "transcribe_and_extract_module"]);
       }
-      
+
       // STRUCTURED LOGGING: Log heartbeat for forensics
       await logJobEvent(supabase, logJobId, {
         step: 'frame_extraction_heartbeat',
@@ -4356,10 +4356,10 @@ async function extractFrames(supabase: any, recordId: string, videoUrl: string, 
           replicate_status: result.status,
           elapsed_seconds: Math.floor(elapsed / 1000),
         }
-      }).catch(() => {}); // Don't fail on log errors
-      
+      }).catch(() => { }); // Don't fail on log errors
+
       lastHeartbeat = now;
-      console.log(`[extractFrames] Heartbeat: ${pollCount} polls, ${Math.floor(elapsed/1000)}s elapsed, status: ${result.status}`);
+      console.log(`[extractFrames] Heartbeat: ${pollCount} polls, ${Math.floor(elapsed / 1000)}s elapsed, status: ${result.status}`);
     }
   }
 
@@ -4367,13 +4367,13 @@ async function extractFrames(supabase: any, recordId: string, videoUrl: string, 
 
   const frameUrls = result.output || [];
   const elapsed = Date.now() - startTime;
-  console.log(`[extractFrames] Extracted ${frameUrls.length} frames in ${Math.floor(elapsed/1000)}s`);
+  console.log(`[extractFrames] Extracted ${frameUrls.length} frames in ${Math.floor(elapsed / 1000)}s`);
 
   // STRUCTURED LOGGING: Log frame extraction completion
   await logJobEvent(supabase, logJobId, {
     step: 'frame_extraction_complete',
     level: 'info',
-    message: `Frame extraction completed: ${frameUrls.length} frames in ${Math.floor(elapsed/1000)}s`,
+    message: `Frame extraction completed: ${frameUrls.length} frames in ${Math.floor(elapsed / 1000)}s`,
     metadata: {
       record_id: recordId,
       frame_count: frameUrls.length,
@@ -4391,7 +4391,7 @@ async function extractFrames(supabase: any, recordId: string, videoUrl: string, 
 
 async function renderGifs(supabase: any, recordId: string, tableName: string) {
   const { data: record } = await supabase.from(tableName).select("*").eq("id", recordId).single();
-  
+
   const frameUrls = record.frame_urls || [];
   if (frameUrls.length === 0) {
     console.log(`[renderGifs] No frames to process`);
@@ -4411,11 +4411,11 @@ async function renderGifs(supabase: any, recordId: string, tableName: string) {
     const segmentEndFrame = Math.min((i + 1) * framesPerGif, frameUrls.length);
     const segmentFrames = [];
     const step = Math.max(1, Math.floor((segmentEndFrame - segmentStartFrame) / FRAMES_PER_GIF));
-    
+
     for (let j = segmentStartFrame; j < segmentEndFrame && segmentFrames.length < FRAMES_PER_GIF; j += step) {
       segmentFrames.push(frameUrls[j]);
     }
-    
+
     gifSegments.push({
       frames: segmentFrames,
       startTime: (i / numGifs) * videoDuration,
@@ -4474,37 +4474,37 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
 
   // Check for force full extraction flag (ops override for large files)
   const forceFullExtraction = fixMetadata?.forceFullExtraction === true || fixMetadata?.bypassSizeLimit === true;
-  
+
   // CHUNKED UPLOAD DETECTION: Check if this is a large chunked upload
   // Videos over ~500MB are uploaded in chunks and require special handling
   const chunkedInfo = await detectChunkedUpload(supabase, course.video_url);
-  
+
   if (chunkedInfo?.isChunked) {
     const totalSizeBytes = chunkedInfo.manifest!.totalSize;
     const totalGB = (totalSizeBytes / (1024 * 1024 * 1024)).toFixed(2);
     const chunkCount = chunkedInfo.manifest!.chunkCount;
-    
+
     console.log(`[stepTranscribeAndExtract] CHUNKED UPLOAD DETECTED: ${chunkCount} chunks, ${totalGB} GB`);
-    
+
     // LARGE FILE HANDLING (>3GB): Use transcript-only mode UNLESS forceFullExtraction is set
     // Edge functions hit CPU/memory limits when streaming very large files through proxy
     // For these files, we skip frame extraction and generate text-based artifacts
     // BUT: ops can override with forceFullExtraction for critical users
     // Increased from 1.5GB to 3GB to support 5-8 hour videos encoded at reasonable quality
     const STREAMING_LIMIT_BYTES = 3 * 1024 * 1024 * 1024; // 3GB
-    
+
     if (totalSizeBytes > STREAMING_LIMIT_BYTES && !forceFullExtraction) {
       console.log(`[stepTranscribeAndExtract] File too large for streaming (${totalGB} GB > 3GB limit)`);
       console.log(`[stepTranscribeAndExtract] Using TRANSCRIPT-ONLY mode for large file processing`);
-      
+
       // Log for ops visibility
       await logJobEvent(supabase, getJobIdForCourse(courseId), {
         step: 'large_file_transcript_only',
         level: 'info',
         message: `Large file (${totalGB} GB) - using transcript-only mode, skipping frame extraction`,
         metadata: { chunkCount, totalGB, courseId, totalSizeBytes, streamingLimitGB: 3 }
-      }).catch(() => {});
-      
+      }).catch(() => { });
+
       // Get signed URL for the first chunk to use for transcription
       // AssemblyAI can handle streaming audio from large files
       const firstChunk = chunkedInfo.manifest!.chunks.find(c => c.order === 0);
@@ -4512,20 +4512,20 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
         const { data: signedData } = await supabase.storage
           .from('video-uploads')
           .createSignedUrl(firstChunk.path, 7200); // 2 hour validity
-        
+
         if (signedData?.signedUrl) {
           // Use first chunk's signed URL for transcription
           // Transcription services can handle partial content
           course._transcriptionUrl = signedData.signedUrl;
         }
       }
-      
+
       // Mark that we're skipping frame extraction for large files
       course._isLargeFile = true;
       course._skipFrameExtraction = true;
       course._chunkCount = chunkCount;
       course._totalSizeGB = totalGB;
-      
+
       // Update course to reflect transcript-only processing
       await supabase.from("courses").update({
         storage_path: course.video_url,
@@ -4538,42 +4538,42 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
       // Instead, we extract frames from the first 1-2 chunks (~500MB-1GB) which covers
       // approximately the first 30-90 minutes of video. Combined with full transcript,
       // this gives a complete OneDuo artifact.
-      
+
       // Determine how many chunks to process for frame extraction
       // First chunk is ~500MB, which typically covers 30-60 minutes at reasonable quality
       const chunksToProcess = Math.min(chunkCount, 2); // Max 2 chunks (~1GB visual coverage)
-      
+
       console.log(`[stepTranscribeAndExtract] DIRECT CHUNK EXTRACTION: Processing ${chunksToProcess} of ${chunkCount} chunks for frames (${totalGB} GB total)`);
-      
+
       await logJobEvent(supabase, getJobIdForCourse(courseId), {
         step: 'chunked_upload_direct_extraction',
         level: 'info',
         message: `Processing ${chunksToProcess} chunks directly for frame extraction (bypassing streaming proxy)`,
         metadata: { chunkCount, chunksToProcess, totalGB, courseId, forceFullExtraction }
-      }).catch(() => {});
-      
+      }).catch(() => { });
+
       // Get signed URLs for the chunks we'll process
       const chunksForFrames = chunkedInfo.manifest!.chunks
         .filter(c => c.order < chunksToProcess)
         .sort((a, b) => a.order - b.order);
-      
+
       if (chunksForFrames.length > 0) {
         // Use the first chunk's signed URL for frame extraction
         const firstChunk = chunksForFrames[0];
         const { data: signedData } = await supabase.storage
           .from('video-uploads')
           .createSignedUrl(firstChunk.path, 7200); // 2 hour validity
-        
+
         if (signedData?.signedUrl) {
           console.log(`[stepTranscribeAndExtract] Using direct signed URL for chunk 0: ${signedData.signedUrl.substring(0, 80)}...`);
-          
+
           // Replace the streaming URL with direct chunk URL
           course.video_url = signedData.signedUrl;
           course._isDirectChunkExtraction = true;
           course._chunkCount = chunkCount;
           course._chunksProcessed = chunksToProcess;
           course._totalSizeGB = totalGB;
-          
+
           // Store metadata about the partial extraction
           await supabase.from("courses").update({
             storage_path: course.video_url,
@@ -4600,14 +4600,14 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
   // Check if we should skip any steps
   const skipTranscription = fixMetadata?.skipTranscription;
   // Skip frame extraction for large files (>1.5GB) or if explicitly requested
-  const skipFrameExtraction = fixMetadata?.skipFrameExtraction || 
-                               fixMetadata?.hasPreExtractedFrames || 
-                               course._skipFrameExtraction;
+  const skipFrameExtraction = fixMetadata?.skipFrameExtraction ||
+    fixMetadata?.hasPreExtractedFrames ||
+    course._skipFrameExtraction;
 
   // For large files, use transcript-only mode
   if (course._isLargeFile && course._skipFrameExtraction) {
     console.log(`[stepTranscribeAndExtract] Large file detected (${course._totalSizeGB} GB) - transcript-only mode`);
-    
+
     // Update progress step to reflect transcript-only processing
     await supabase.from("courses").update({
       progress_step: "transcribing_audio",
@@ -4643,7 +4643,7 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      
+
       // Chunked upload errors should have been handled earlier
       // If we get here, it means the streaming URL approach failed
       if (errorMessage.includes('CHUNKED_UPLOAD_DETECTED')) {
@@ -4670,23 +4670,23 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
   if (!skipFrameExtraction) {
     try {
       await extractFramesWithWebhook(
-        supabase, courseId, course.video_url, course.fps_target || 3, 'courses', 
+        supabase, courseId, course.video_url, course.fps_target || 3, 'courses',
         courseId, undefined, 'transcribe_and_extract', fixMetadata
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      
+
       // Chunked upload errors should have been handled via streaming
       // If we still get this error, log it and try to continue
       if (errorMessage.includes('CHUNKED_UPLOAD_DETECTED')) {
         console.error(`[stepTranscribeAndExtract] Chunked upload error during extraction - streaming proxy may have failed`);
-        
+
         // Check if this is a streaming URL that failed differently
         if (course._isChunkedStreaming) {
           console.error(`[stepTranscribeAndExtract] Streaming proxy approach failed for chunked upload`);
           const totalGB = course._totalSizeGB || 'unknown';
           const chunkCount = course._chunkCount || 'unknown';
-          
+
           await supabase.from("courses").update({
             status: "failed",
             error_message: `This ${totalGB}GB video (${chunkCount} chunks) could not be processed via streaming. ` +
@@ -4695,7 +4695,7 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
           throw error;
         }
       }
-      
+
       console.error(`[stepTranscribeAndExtract] Frame extraction webhook submission error:`, error);
       throw error; // Frame extraction is critical
     }
@@ -4722,7 +4722,7 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
     .eq("step", "transcribe_and_extract");
 
   console.log(`[stepTranscribeAndExtract] Jobs submitted, awaiting webhooks for course ${courseId}`);
-  
+
   // Throw a special "await webhook" signal that the caller should catch
   // This prevents the normal "complete and queue next" flow
   throw new AwaitWebhookSignal("Awaiting external webhook callbacks");
@@ -4769,7 +4769,7 @@ async function stepTranscribeAndExtractModule(supabase: any, courseId: string, m
   if (!skipTranscription) {
     try {
       const result = await transcribeVideoWithWebhook(
-        supabase, module.id, module.video_url, 'course_modules', 
+        supabase, module.id, module.video_url, 'course_modules',
         courseId, moduleNumber, 'transcribe_and_extract_module'
       );
       if (!result.webhookSubmitted) {
@@ -4788,7 +4788,7 @@ async function stepTranscribeAndExtractModule(supabase: any, courseId: string, m
   if (!skipFrameExtraction) {
     try {
       await extractFramesWithWebhook(
-        supabase, module.id, module.video_url, module.courses.fps_target || 3, 
+        supabase, module.id, module.video_url, module.courses.fps_target || 3,
         'course_modules', courseId, moduleNumber, 'transcribe_and_extract_module', fixMetadata
       );
     } catch (error) {
@@ -4816,7 +4816,7 @@ async function stepTranscribeAndExtractModule(supabase: any, courseId: string, m
     .eq("step", "transcribe_and_extract_module");
 
   console.log(`[stepTranscribeAndExtractModule] Jobs submitted, awaiting webhooks for module ${moduleNumber}`);
-  
+
   throw new AwaitWebhookSignal("Awaiting external webhook callbacks");
 }
 
@@ -4879,7 +4879,7 @@ async function stepExtractFrames(supabase: any, courseId: string, fixMetadata?: 
         chunkCount: chunkedInfo.manifest?.chunkCount,
         totalSize: chunkedInfo.manifest?.totalSize,
       }
-    }).catch(() => {});
+    }).catch(() => { });
 
     // Submit Replicate job with webhook (no polling) and let replicate-webhook persist frames + queue next steps.
     await extractFramesWithWebhook(
@@ -4934,7 +4934,7 @@ async function stepAnalyzeAudio(supabase: any, courseId: string) {
   try {
     // Call analyze-audio-prosody for screenplay parentheticals
     const prosodyResult = await analyzeAudioProsody(course);
-    
+
     // Call analyze-audio-events for music, ambient, reactions, pauses
     const eventsResult = await analyzeAudioEvents(course);
 
@@ -5091,45 +5091,45 @@ async function stepTrainAi(supabase: any, courseId: string) {
   const isChunkedUpload = course.chunked === true || course.chunk_count > 1;
   const hasValidTranscript = Array.isArray(transcript) && transcript.length > 0;
   const jobId = getJobIdForCourse(courseId);
-  
+
   // For chunked uploads (10GB+ files): skip frame backfill attempts entirely
   // These files can't be processed by Replicate due to Edge Function timeouts
   if (isChunkedUpload) {
     console.log(`[stepTrainAi] CHUNKED UPLOAD DETECTED: chunk_count=${course.chunk_count}, frames=${frameUrls.length}, transcript_segments=${transcript.length}`);
-    
+
     if (!Array.isArray(frameUrls) || frameUrls.length === 0) {
       // Chunked uploads without frames - allow completion with transcript or minimal artifact
       console.warn(`[stepTrainAi] Chunked upload has no frames - proceeding with transcript-only mode`);
-      
+
       await logJobEvent(supabase, jobId, {
         step: 'chunked_upload_completion',
         level: 'info',
         message: `Large file (${course.chunk_count} chunks): completing ${hasValidTranscript ? 'with transcript' : 'with minimal artifact'}`,
-        metadata: { 
-          course_id: courseId, 
-          chunk_count: course.chunk_count, 
+        metadata: {
+          course_id: courseId,
+          chunk_count: course.chunk_count,
           transcript_segments: transcript.length,
-          video_duration: course.video_duration_seconds 
+          video_duration: course.video_duration_seconds
         }
       });
-      
+
       // Ensure frameUrls is an empty array for UI compatibility
       frameUrls = [];
     }
-    
+
     // For chunked uploads: always allow completion, even without transcript
     // The user uploaded a massive file - we should deliver SOMETHING
   } else if (!Array.isArray(frameUrls) || frameUrls.length === 0) {
     // NON-CHUNKED UPLOAD: Attempt frame backfill
     console.warn(`[stepTrainAi] SAFEGUARD #2: No frames found for course ${courseId}. Attempting re-pull...`);
-    
+
     await logJobEvent(supabase, jobId, {
       step: 'completion_blocked_no_frames',
       level: 'warn',
       message: 'Zero frames detected, triggering backfill',
       metadata: { course_id: courseId, video_url: course.video_url }
     });
-    
+
     // Attempt to backfill frames from persist-frames edge function
     try {
       console.log(`[stepTrainAi] Invoking persist-frames for backfill...`);
@@ -5147,18 +5147,18 @@ async function stepTrainAi(supabase: any, courseId: string) {
           forceReExtract: true
         })
       });
-      
+
       if (backfillResponse.ok) {
         const backfillResult = await backfillResponse.json();
         if (backfillResult.success && backfillResult.persistedUrls?.length > 0) {
           console.log(`[stepTrainAi] BACKFILL SUCCESS: Retrieved ${backfillResult.persistedUrls.length} frames`);
           frameUrls = backfillResult.persistedUrls;
-          
+
           await supabase.from("courses").update({
             frame_urls: frameUrls,
             total_frames: frameUrls.length,
           }).eq("id", courseId);
-          
+
           await logJobEvent(supabase, jobId, {
             step: 'frame_backfill_succeeded',
             level: 'info',
@@ -5174,7 +5174,7 @@ async function stepTrainAi(supabase: any, courseId: string) {
     } catch (backfillError) {
       console.error(`[stepTrainAi] Backfill exception:`, backfillError);
     }
-    
+
     // After backfill attempt, check again - but still allow completion with transcript
     if (!Array.isArray(frameUrls) || frameUrls.length === 0) {
       if (hasValidTranscript) {
@@ -5183,25 +5183,25 @@ async function stepTrainAi(supabase: any, courseId: string) {
       } else {
         // No frames AND no transcript - fail for non-chunked uploads
         console.error(`[stepTrainAi] BLOCKING COMPLETION: No frames and no transcript`);
-        
+
         await logJobEvent(supabase, jobId, {
           step: 'completion_blocked_permanently',
           level: 'error',
           message: 'Course completion BLOCKED: no frames and no transcript',
           metadata: { course_id: courseId }
         });
-        
+
         await supabase.from("courses").update({
           status: "failed",
           error_message: "Processing failed: No visual frames or transcript could be extracted",
           progress_step: "failed",
         }).eq("id", courseId);
-        
+
         throw new Error(`SAFEGUARD #2: Cannot complete course ${courseId} with zero frames and no transcript`);
       }
     }
   }
-  
+
   console.log(`[stepTrainAi] Frame verification passed: ${frameUrls.length} frames available`);
 
   const formattedTranscript = transcript.map((seg: TranscriptSegment) => {
@@ -5211,9 +5211,9 @@ async function stepTrainAi(supabase: any, courseId: string) {
 
   // Note: isChunkedUpload and hasValidTranscript already defined above
   const isTranscriptOnly = frameUrls.length === 0;
-  
+
   const hasAnyContent = hasValidTranscript || frameUrls.length > 0;
-  
+
   const aiContext = `
 # Course: ${course.title}
 
@@ -5227,11 +5227,11 @@ ${isChunkedUpload ? `- Upload Type: Large file (${course.chunk_count || 0} chunk
 ${formattedTranscript || '(Transcript not available for this video)'}
 
 ## ${!hasAnyContent ? 'Processing Note' : isTranscriptOnly ? 'Note: Large File Mode' : 'Frame Reference Guide'}
-${!hasAnyContent 
-  ? 'This artifact was generated for a large chunked upload where frame extraction and transcription could not complete. The source video has been stored for future processing improvements.'
-  : isTranscriptOnly 
-    ? `This artifact was generated in transcript-only mode for a large chunked upload (${course.chunk_count || 0} chunks). Visual frame extraction is not yet supported for files of this size but the full transcript is available above.`
-    : `You have access to ${frameUrls.length} frames extracted at ${course.fps_target} FPS.`}
+${!hasAnyContent
+      ? 'This artifact was generated for a large chunked upload where frame extraction and transcription could not complete. The source video has been stored for future processing improvements.'
+      : isTranscriptOnly
+        ? `This artifact was generated in transcript-only mode for a large chunked upload (${course.chunk_count || 0} chunks). Visual frame extraction is not yet supported for files of this size but the full transcript is available above.`
+        : `You have access to ${frameUrls.length} frames extracted at ${course.fps_target} FPS.`}
 `;
 
   // FIX: Include progress_step: "completed" for UI tracking
@@ -5244,14 +5244,14 @@ ${!hasAnyContent
   }).eq("id", courseId);
 
   console.log(`[stepTrainAi] Training complete for course ${courseId} with ${frameUrls.length} verified frames`);
-  
+
   // ONEDUO ARTIFACT GENERATION: Create transformation artifact for visual emphasis analysis
   // This is the core OneDuo patent - visual intent detection from frames
   // Works in frames-only mode even without transcript
   if (course.user_id && frameUrls.length > 0) {
     try {
       console.log(`[stepTrainAi] Creating OneDuo transformation artifact for user ${course.user_id}`);
-      
+
       // Create the transformation artifact record
       const { data: artifact, error: artifactError } = await supabase
         .from("transformation_artifacts")
@@ -5265,12 +5265,12 @@ ${!hasAnyContent
         })
         .select()
         .single();
-      
+
       if (artifactError) {
         console.error(`[stepTrainAi] Failed to create artifact:`, artifactError);
       } else {
         console.log(`[stepTrainAi] Artifact created: ${artifact.id}, invoking process-transformation`);
-        
+
         // Invoke the process-transformation function to detect emphasis signals
         const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
         await fetch(`${supabaseUrl}/functions/v1/process-transformation`, {
@@ -5291,18 +5291,18 @@ ${!hasAnyContent
   } else {
     console.log(`[stepTrainAi] Skipping artifact generation: user_id=${course.user_id}, frames=${frameUrls.length}`);
   }
-  
+
   // ZERO-KNOWLEDGE PURGE: Delete source video immediately after frame extraction
   // We retain only derivatives (frames), not the original content
   await purgeSourceVideo(supabase, course.video_url, courseId);
-  
+
   // EVENT OUTBOX: Emit course_completed event for reliable email delivery
   await emitProcessingEvent(supabase, 'course_completed', 'course', courseId, {
     email: course.email,
     courseTitle: course.title,
     courseId
   });
-  
+
   // Process outbox immediately
   processOutboxEvents(supabase).catch(e => console.warn('[outbox] Background processing failed:', e));
 }
@@ -5313,25 +5313,25 @@ ${!hasAnyContent
 // We CANNOT comply with requests for original content because we do not possess it
 
 async function purgeSourceVideo(
-  supabase: any, 
-  videoUrl: string | null, 
-  courseId?: string, 
+  supabase: any,
+  videoUrl: string | null,
+  courseId?: string,
   moduleId?: string
 ): Promise<void> {
   if (!videoUrl) return;
-  
+
   try {
     // Extract the storage path from the video URL
     // Supports both buckets: video-uploads and course-videos
     // URL format: https://[project].supabase.co/storage/v1/object/public/[bucket]/[path]
     let storagePath: string | null = null;
-    
+
     // Try video-uploads bucket first
     const videoUploadsMatch = videoUrl.match(/\/video-uploads\/(.+)$/);
     if (videoUploadsMatch) {
       storagePath = `video-uploads/${decodeURIComponent(videoUploadsMatch[1])}`;
     }
-    
+
     // Try course-videos bucket
     if (!storagePath) {
       const courseVideosMatch = videoUrl.match(/\/course-videos\/(.+)$/);
@@ -5339,14 +5339,14 @@ async function purgeSourceVideo(
         storagePath = `course-videos/${decodeURIComponent(courseVideosMatch[1])}`;
       }
     }
-    
+
     if (!storagePath) {
       console.log(`[purgeSourceVideo] Could not extract path from URL, may be external: ${videoUrl.substring(0, 80)}...`);
       return;
     }
-    
+
     console.log(`[purgeSourceVideo] ZERO-KNOWLEDGE PURGE: ${storagePath}`);
-    
+
     // Call the dedicated purge edge function for proper audit logging
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const response = await fetch(`${supabaseUrl}/functions/v1/purge-source-video`, {
@@ -5362,14 +5362,14 @@ async function purgeSourceVideo(
         method: 'automatic'
       })
     });
-    
+
     if (response.ok) {
       const result = await response.json();
       console.log(`[purgeSourceVideo] SUCCESS: ${result.success}, auditId: ${result.auditLogId}`);
     } else {
       const errorText = await response.text();
       console.error(`[purgeSourceVideo] Purge function returned ${response.status}: ${errorText}`);
-      
+
       // Fallback: direct deletion if edge function fails (but no audit log)
       // Extract bucket and path from storagePath
       const parts = storagePath.split('/');
@@ -5384,7 +5384,7 @@ async function purgeSourceVideo(
     }
   } catch (err) {
     console.error(`[purgeSourceVideo] Error:`, err);
-    
+
     // Non-fatal: module/course processing should continue even if purge fails
     // The cron job will clean up any orphaned files later
   }
@@ -5636,10 +5636,10 @@ async function sendCompletionEmail(supabase: any, email: string, courseTitle: st
 async function sendModuleCompleteEmailIdempotent(
   supabase: any,
   moduleId: string,
-  email: string, 
-  courseTitle: string, 
-  moduleNumber: number, 
-  totalModules: number, 
+  email: string,
+  courseTitle: string,
+  moduleNumber: number,
+  totalModules: number,
   courseId: string
 ) {
   // Check if we should send (atomically marks as sent if not already)
@@ -5655,7 +5655,7 @@ async function sendModuleCompleteEmailIdempotent(
   const resend = new Resend(resendApiKey);
   const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
   const appUrl = supabaseUrl.replace('.supabase.co', '.lovable.app');
-  
+
   // Use client-side module download page for on-demand PDF generation
   // This is more reliable as it generates from the module's raw data
   const downloadUrl = `${appUrl}/download/module/${moduleId}`;
@@ -5692,10 +5692,10 @@ async function sendModuleCompleteEmailIdempotent(
                       <p style="margin: 0 0 16px; color: #cccccc; font-size: 15px; line-height: 1.7;">
                         <strong style="color: #ffffff;">${courseTitle}</strong> — Module ${moduleNumber} of ${totalModules} is now ready.
                       </p>
-                      ${totalModules - moduleNumber > 0 
-                        ? `<p style="margin: 0; color: #888888; font-size: 14px; line-height: 1.6;">The remaining ${totalModules - moduleNumber} module(s) are still processing. You can begin implementation with this module now while the others complete.</p>`
-                        : `<p style="margin: 0; color: #888888; font-size: 14px; line-height: 1.6;">All modules are now complete. Your entire course artifact is ready for AI-assisted execution.</p>`
-                      }
+                      ${totalModules - moduleNumber > 0
+          ? `<p style="margin: 0; color: #888888; font-size: 14px; line-height: 1.6;">The remaining ${totalModules - moduleNumber} module(s) are still processing. You can begin implementation with this module now while the others complete.</p>`
+          : `<p style="margin: 0; color: #888888; font-size: 14px; line-height: 1.6;">All modules are now complete. Your entire course artifact is ready for AI-assisted execution.</p>`
+        }
                     </td>
                   </tr>
                   
@@ -5840,7 +5840,7 @@ async function sendFailureEmail(email: string, courseTitle: string, courseId: st
   const appUrl = Deno.env.get("APP_URL") || "https://oneduo.ai";
 
   const canAutoFix = errorAnalysis.canAutoFix;
-  const userAction = canAutoFix 
+  const userAction = canAutoFix
     ? "You can retry from your dashboard and we'll try a different approach."
     : `Please ${errorAnalysis.fixStrategy.toLowerCase()} and retry.`;
 
