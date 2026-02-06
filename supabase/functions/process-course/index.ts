@@ -742,12 +742,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 async function detectChunkedUpload(supabase: any, videoUrl: string): Promise<{
   isChunked: boolean;
+  isLargeFile?: boolean;
   manifest?: {
     chunkCount: number;
     totalSize: number;
     chunks: { path: string; size: number; order: number }[];
   };
   manifestPath?: string;
+  totalSizeBytes?: number;
 } | null> {
   try {
     // Extract path from video URL
@@ -773,8 +775,34 @@ async function detectChunkedUpload(supabase: any, videoUrl: string): Promise<{
       .download(manifestPath);
 
     if (error || !data) {
-      console.log(`[detectChunkedUpload] No manifest found (not chunked)`);
-      return { isChunked: false };
+      console.log(`[detectChunkedUpload] No manifest found. Checking file size of ${ref.objectPath}...`);
+
+      // Fallback: Check size of the single object
+      // We use list approach to get metadata without downloading
+      const parts = ref.objectPath.split('/');
+      const fileName = parts.pop();
+      const folder = parts.join('/');
+
+      const { data: objects, error: listError } = await supabase.storage
+        .from(ref.bucket)
+        .list(folder, { search: fileName });
+
+      if (listError || !objects || objects.length === 0) {
+        console.warn(`[detectChunkedUpload] Could not get metadata for ${ref.objectPath}`);
+        return { isChunked: false };
+      }
+
+      const totalSizeBytes = objects[0].metadata?.size || 0;
+      const totalGB = (totalSizeBytes / (1024 * 1024 * 1024)).toFixed(2);
+      const isLargeFile = totalSizeBytes > 1024 * 1024 * 1024; // > 1GB
+
+      console.log(`[detectChunkedUpload] Single file detected: ${totalGB} GB, isLargeFile=${isLargeFile}`);
+
+      return {
+        isChunked: false,
+        isLargeFile,
+        totalSizeBytes
+      };
     }
 
     // Parse manifest
@@ -785,15 +813,17 @@ async function detectChunkedUpload(supabase: any, videoUrl: string): Promise<{
 
     return {
       isChunked: true,
+      isLargeFile: true, // All chunked uploads are large files
       manifest: {
         chunkCount: manifest.chunkCount,
         totalSize: manifest.totalSize,
         chunks: manifest.chunks,
       },
       manifestPath,
+      totalSizeBytes: manifest.totalSize
     };
   } catch (e) {
-    console.log(`[detectChunkedUpload] Error checking manifest:`, e);
+    console.log(`[detectChunkedUpload] Error checking manifest/size:`, e);
     return { isChunked: false };
   }
 }
@@ -808,17 +838,20 @@ async function processChunkedVideo(
   course: any,
   chunkedInfo: {
     isChunked: boolean;
+    isLargeFile?: boolean;
     manifest?: {
       chunkCount: number;
       totalSize: number;
       chunks: { path: string; size: number; order: number }[];
     };
     manifestPath?: string;
+    totalSizeBytes?: number;
   }
 ): Promise<void> {
   const jobId = `chunked-${courseId.slice(0, 8)}`;
-  const totalGB = (chunkedInfo.manifest!.totalSize / (1024 * 1024 * 1024)).toFixed(2);
-  const uploadChunkCount = chunkedInfo.manifest!.chunkCount;
+  const totalSizeBytes = chunkedInfo.manifest?.totalSize || chunkedInfo.totalSizeBytes || 0;
+  const totalGB = (totalSizeBytes / (1024 * 1024 * 1024)).toFixed(2);
+  const uploadChunkCount = chunkedInfo.manifest?.chunkCount || 1;
 
   await logJobEvent(supabase, jobId, {
     step: 'chunked_processing_start',
@@ -837,7 +870,7 @@ async function processChunkedVideo(
   }).eq("id", courseId);
 
   // Calculate video duration estimate from file size (generous for screen recordings: ~1MB per minute)
-  const estimatedDurationSeconds = Math.ceil(chunkedInfo.manifest!.totalSize / (1 * 1024 * 1024) * 60);
+  const estimatedDurationSeconds = Math.ceil(totalSizeBytes / (1 * 1024 * 1024) * 60);
 
   // Define processing chunk duration (10 minutes per processing chunk)
   const PROCESSING_CHUNK_DURATION = 10 * 60; // 10 minutes in seconds
@@ -4479,10 +4512,10 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
   // Videos over ~500MB are uploaded in chunks and require special handling
   const chunkedInfo = await detectChunkedUpload(supabase, course.video_url);
 
-  if (chunkedInfo?.isChunked) {
-    const totalSizeBytes = chunkedInfo.manifest!.totalSize;
+  if (chunkedInfo?.isLargeFile) {
+    const totalSizeBytes = chunkedInfo.totalSizeBytes || 0;
     const totalGB = (totalSizeBytes / (1024 * 1024 * 1024)).toFixed(2);
-    const chunkCount = chunkedInfo.manifest!.chunkCount;
+    const chunkCount = chunkedInfo.manifest?.chunkCount || 1;
 
     console.log(`[stepTranscribeAndExtract] CHUNKED UPLOAD DETECTED: ${chunkCount} chunks, ${totalGB} GB`);
 
@@ -4505,13 +4538,14 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
         metadata: { chunkCount, totalGB, courseId, totalSizeBytes, streamingLimitGB: 3 }
       }).catch(() => { });
 
-      // Get signed URL for the first chunk to use for transcription
-      // AssemblyAI can handle streaming audio from large files
-      const firstChunk = chunkedInfo.manifest!.chunks.find(c => c.order === 0);
-      if (firstChunk) {
+      // Get signed URL for the video (first chunk if manifest exists, or full video)
+      const firstChunkPath = chunkedInfo.manifest?.chunks.find(c => c.order === 0)?.path ||
+        parseSupabaseStorageObjectUrl(course.video_url)?.objectPath;
+
+      if (firstChunkPath) {
         const { data: signedData } = await supabase.storage
           .from('video-uploads')
-          .createSignedUrl(firstChunk.path, 7200); // 2 hour validity
+          .createSignedUrl(firstChunkPath, 7200); // 2 hour validity
 
         if (signedData?.signedUrl) {
           // Use first chunk's signed URL for transcription
@@ -4532,59 +4566,16 @@ async function stepTranscribeAndExtract(supabase: any, courseId: string, fixMeta
         density_mode: 'transcript_only',
         progress_step: 'transcribing_large_file',
       }).eq("id", courseId);
-    } else {
-      // DIRECT CHUNK EXTRACTION: For ANY chunked upload, use signed URLs directly to chunks.
-      // The streaming proxy hits CPU/memory limits on edge functions for large files.
-      // Instead, we extract frames from the first 1-2 chunks (~500MB-1GB) which covers
-      // approximately the first 30-90 minutes of video. Combined with full transcript,
-      // this gives a complete OneDuo artifact.
+      // MEGA-VIDEO OPTIMIZATION: Trigger specialized chunk processing
+      // This handles frame extraction with robust polling/progress updates
+      // for both chunked and large single-file uploads.
+      console.log(`[stepTranscribeAndExtract] Mega-Video detected: triggering specialized process-chunk flow`);
 
-      // Determine how many chunks to process for frame extraction
-      // First chunk is ~500MB, which typically covers 30-60 minutes at reasonable quality
-      const chunksToProcess = Math.min(chunkCount, 2); // Max 2 chunks (~1GB visual coverage)
+      await processChunkedVideo(supabase, courseId, course, chunkedInfo);
 
-      console.log(`[stepTranscribeAndExtract] DIRECT CHUNK EXTRACTION: Processing ${chunksToProcess} of ${chunkCount} chunks for frames (${totalGB} GB total)`);
-
-      await logJobEvent(supabase, getJobIdForCourse(courseId), {
-        step: 'chunked_upload_direct_extraction',
-        level: 'info',
-        message: `Processing ${chunksToProcess} chunks directly for frame extraction (bypassing streaming proxy)`,
-        metadata: { chunkCount, chunksToProcess, totalGB, courseId, forceFullExtraction }
-      }).catch(() => { });
-
-      // Get signed URLs for the chunks we'll process
-      const chunksForFrames = chunkedInfo.manifest!.chunks
-        .filter(c => c.order < chunksToProcess)
-        .sort((a, b) => a.order - b.order);
-
-      if (chunksForFrames.length > 0) {
-        // Use the first chunk's signed URL for frame extraction
-        const firstChunk = chunksForFrames[0];
-        const { data: signedData } = await supabase.storage
-          .from('video-uploads')
-          .createSignedUrl(firstChunk.path, 7200); // 2 hour validity
-
-        if (signedData?.signedUrl) {
-          console.log(`[stepTranscribeAndExtract] Using direct signed URL for chunk 0: ${signedData.signedUrl.substring(0, 80)}...`);
-
-          // Replace the streaming URL with direct chunk URL
-          course.video_url = signedData.signedUrl;
-          course._isDirectChunkExtraction = true;
-          course._chunkCount = chunkCount;
-          course._chunksProcessed = chunksToProcess;
-          course._totalSizeGB = totalGB;
-
-          // Store metadata about the partial extraction
-          await supabase.from("courses").update({
-            storage_path: course.video_url,
-            chunked: true,
-            chunk_count: chunkCount,
-          }).eq("id", courseId);
-        } else {
-          console.error(`[stepTranscribeAndExtract] Failed to get signed URL for first chunk`);
-          throw new Error(`Failed to access video chunk for extraction`);
-        }
-      }
+      // The processChunkedVideo function marks the queue as awaiting_webhook
+      // but we still need to throw the signal to exit the current step handler
+      throw new AwaitWebhookSignal("Mega-Video processing initiated via process-chunk");
     }
   }
 

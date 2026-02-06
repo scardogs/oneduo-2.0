@@ -13,7 +13,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunks (very safe, avoids 50MB default limits)
+const CHUNK_SIZE = 500 * 1024 * 1024; // 500GB chunks (optimized for Pro Plan large files)
 
 
 const MAX_RETRIES = 3;
@@ -446,6 +446,6 @@ export function useChunkedUpload() {
  * Check if a file needs chunked upload (>4.5GB)
  */
 export function needsChunkedUpload(file: File): boolean {
-  const THRESHOLD = 4.5 * 1024 * 1024 * 1024; // 4.5GB
+  const THRESHOLD = 5 * 1024 * 1024 * 1024; // 5GB (TUS/Supabase single-file limit)
   return file.size > THRESHOLD;
 }

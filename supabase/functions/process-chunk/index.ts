@@ -90,8 +90,36 @@ async function getManifest(supabase: SupabaseClient, videoUrl: string): Promise<
       .download(manifestPath);
 
     if (error || !data) {
-      console.log(`[ProcessChunk] No manifest found at ${manifestPath}`);
-      return null;
+      console.log(`[ProcessChunk] No manifest found at ${manifestPath}. Checking file size...`);
+
+      // Fallback: Check size of the single object
+      const parts = basePath.split('/');
+      const fileName = parts.pop();
+      const folder = parts.join('/');
+
+      const { data: objects, error: listError } = await supabase.storage
+        .from('video-uploads')
+        .list(folder, { search: fileName });
+
+      if (listError || !objects || objects.length === 0) {
+        console.warn(`[ProcessChunk] Could not get metadata for ${basePath}`);
+        return null;
+      }
+
+      const totalSizeBytes = objects[0].metadata?.size || 0;
+
+      // Return a "pseudo-manifest" for the single file
+      return {
+        type: 'single-file',
+        version: 1,
+        totalSize: totalSizeBytes,
+        chunkCount: 1,
+        chunks: [{
+          path: match[1], // Use original path
+          size: totalSizeBytes,
+          order: 0
+        }]
+      };
     }
 
     const manifest = JSON.parse(await data.text()) as Manifest;
@@ -110,7 +138,7 @@ async function getManifest(supabase: SupabaseClient, videoUrl: string): Promise<
 async function extractFramesViaStreamingProxy(
   supabase: SupabaseClient,
   courseId: string,
-  manifestPath: string,
+  manifest: Manifest, // Pass the manifest object instead of path
   jobId: string
 ): Promise<string[]> {
   const REPLICATE_API_KEY = Deno.env.get('REPLICATE_API_KEY');
@@ -120,10 +148,23 @@ async function extractFramesViaStreamingProxy(
     throw new Error('REPLICATE_API_KEY not configured');
   }
 
-  // Build streaming proxy URL that reassembles all chunks
-  const streamingUrl = `${supabaseUrl}/functions/v1/stream-chunked-video?manifest=${encodeURIComponent(manifestPath)}&courseId=${courseId}`;
+  // Determine the video URL for Replicate
+  let videoUrl: string;
+  if (manifest.type === 'single-file' && manifest.chunks.length > 0) {
+    // For single large files, bypass the streaming proxy and get a direct signed URL
+    console.log(`[ProcessChunk] Single file detected, getting direct signed URL for Replicate`);
+    const { data: signedData } = await supabase.storage
+      .from('video-uploads')
+      .createSignedUrl(manifest.chunks[0].path, 7200); // 2 hours
 
-  console.log(`[ProcessChunk] Using streaming proxy for extraction: ${streamingUrl.slice(0, 100)}...`);
+    if (!signedData?.signedUrl) throw new Error("Failed to get signed URL for single file");
+    videoUrl = signedData.signedUrl;
+  } else {
+    // For chunked uploads, use the streaming proxy to reassemble
+    const manifestPath = `${manifest.chunks[0].path.split('_chunk_')[0]}.manifest.json`;
+    videoUrl = `${supabaseUrl}/functions/v1/stream-chunked-video?manifest=${encodeURIComponent(manifestPath)}&courseId=${courseId}`;
+    console.log(`[ProcessChunk] Using streaming proxy for extraction: ${videoUrl.slice(0, 100)}...`);
+  }
 
   // Import Replicate
   const Replicate = (await import("https://esm.sh/replicate@0.25.2")).default;
@@ -148,7 +189,7 @@ async function extractFramesViaStreamingProxy(
       prediction = await replicate.predictions.create({
         version: latestVersionId,
         input: {
-          video: streamingUrl,
+          video: videoUrl,
           fps: EXTRACTION_FPS,
           width: TARGET_WIDTH,
         },
@@ -296,7 +337,8 @@ Deno.serve(async (req) => {
     }).eq('id', courseId);
 
     // Use streaming proxy to extract frames from the full reassembled video
-    const allFrames = await extractFramesViaStreamingProxy(supabase, courseId, manifestPath, jobId);
+    // Extract frames using the optimized path (Unified Mega-Video flow)
+    const allFrames = await extractFramesViaStreamingProxy(supabase, courseId, manifest, jobId);
 
     // Save results to course
     await supabase.from('courses').update({
