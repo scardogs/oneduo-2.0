@@ -75,25 +75,25 @@ async function getManifest(supabase: SupabaseClient, videoUrl: string): Promise<
     // Extract storage path from video URL
     const match = videoUrl.match(/video-uploads\/(.+?)(?:\?|$)/);
     if (!match) return null;
-    
+
     let basePath = match[1];
     // Remove _chunk_XXXX suffix if present
     const chunkMatch = basePath.match(/^(.+?)_chunk_\d+$/);
     if (chunkMatch) {
       basePath = chunkMatch[1];
     }
-    
+
     const manifestPath = `${basePath}.manifest.json`;
-    
+
     const { data, error } = await supabase.storage
       .from('video-uploads')
       .download(manifestPath);
-    
+
     if (error || !data) {
       console.log(`[ProcessChunk] No manifest found at ${manifestPath}`);
       return null;
     }
-    
+
     const manifest = JSON.parse(await data.text()) as Manifest;
     console.log(`[ProcessChunk] Found manifest with ${manifest.chunkCount} storage chunks`);
     return manifest;
@@ -114,14 +114,14 @@ async function extractFramesViaStreamingProxy(
 ): Promise<string[]> {
   const REPLICATE_API_KEY = Deno.env.get('REPLICATE_API_KEY');
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-  
+
   if (!REPLICATE_API_KEY) {
     throw new Error('REPLICATE_API_KEY not configured');
   }
 
   // Build streaming proxy URL that reassembles all chunks
   const streamingUrl = `${supabaseUrl}/functions/v1/stream-chunked-video?manifest=${encodeURIComponent(manifestPath)}&courseId=${courseId}`;
-  
+
   console.log(`[ProcessChunk] Using streaming proxy for extraction: ${streamingUrl.slice(0, 100)}...`);
 
   // Import Replicate
@@ -132,7 +132,7 @@ async function extractFramesViaStreamingProxy(
   const modelResponse = await fetch("https://api.replicate.com/v1/models/fofr/video-to-frames", {
     headers: { "Authorization": `Bearer ${REPLICATE_API_KEY}` },
   });
-  
+
   if (!modelResponse.ok) throw new Error(`Failed to fetch model info: ${modelResponse.status}`);
   const modelData = await modelResponse.json();
   const latestVersionId = modelData.latest_version?.id;
@@ -141,13 +141,13 @@ async function extractFramesViaStreamingProxy(
   // Create prediction with retries
   let prediction = null;
   let retryAttempts = 0;
-  
+
   while (!prediction && retryAttempts < 5) {
     try {
       prediction = await replicate.predictions.create({
         version: latestVersionId,
-        input: { 
-          video: streamingUrl, 
+        input: {
+          video: streamingUrl,
           fps: EXTRACTION_FPS,
           width: TARGET_WIDTH,
         },
@@ -157,7 +157,7 @@ async function extractFramesViaStreamingProxy(
       const status = error?.response?.status;
       if (status === 429 || status === 502 || status === 503) {
         const delay = 15000 * Math.pow(1.5, retryAttempts);
-        console.log(`[ProcessChunk] Retryable error (${status}), waiting ${Math.round(delay/1000)}s...`);
+        console.log(`[ProcessChunk] Retryable error (${status}), waiting ${Math.round(delay / 1000)}s...`);
         await new Promise(r => setTimeout(r, delay));
         retryAttempts++;
       } else {
@@ -165,7 +165,7 @@ async function extractFramesViaStreamingProxy(
       }
     }
   }
-  
+
   if (!prediction) throw new Error("Failed to create prediction after retries");
 
   // Poll for completion - EXTENDED timeout for large videos streamed through proxy
@@ -174,41 +174,45 @@ async function extractFramesViaStreamingProxy(
   const pollInterval = 10000; // Check every 10 seconds
   const startTime = Date.now();
   let lastLogTime = startTime;
-  
+
   while (Date.now() - startTime < maxWaitTime) {
     const status = await replicate.predictions.get(prediction.id);
     const elapsed = Date.now() - startTime;
-    
+
     // Update heartbeat
     await supabase.from('courses').update({
       last_heartbeat_at: new Date().toISOString(),
     }).eq('id', courseId);
-    
+
     if (status.status === 'succeeded') {
       const output = status.output || [];
-      console.log(`[ProcessChunk] Streaming extraction complete: ${output.length} frames in ${Math.round(elapsed/60000)} minutes`);
+      console.log(`[ProcessChunk] Streaming extraction complete: ${output.length} frames in ${Math.round(elapsed / 60000)} minutes`);
       return output;
     }
-    
+
     if (status.status === 'failed') {
       throw new Error(`Extraction failed: ${status.error || 'Unknown error'}`);
     }
-    
-    // Log progress every 2 minutes
-    if (Date.now() - lastLogTime > 120000) {
-      console.log(`[ProcessChunk] Streaming extraction in progress: status=${status.status}, elapsed=${Math.round(elapsed/60000)}min`);
+
+    // Log progress every 30 seconds (better feedback for long videos)
+    if (Date.now() - lastLogTime > 30000) {
+      console.log(`[ProcessChunk] Streaming extraction in progress: status=${status.status}, elapsed=${Math.round(elapsed / 60000)}min`);
       lastLogTime = Date.now();
-      
+
       // Update progress based on time (rough estimate)
       const progressEstimate = Math.min(45, 25 + Math.floor(elapsed / 60000)); // Cap at 45%
       await supabase.from('courses').update({
         progress: progressEstimate,
       }).eq('id', courseId);
+
+      await logEvent(supabase, jobId, 'extraction_progress_ping', 'info',
+        `Extraction in progress: ${status.status}, elapsed ${Math.round(elapsed / 1000)}s`
+      );
     }
-    
+
     await new Promise(r => setTimeout(r, pollInterval));
   }
-  
+
   throw new Error('Streaming extraction timed out after 180 minutes');
 }
 
@@ -219,13 +223,13 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-  
+
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     const body: ProcessChunkRequest = await req.json().catch(() => ({}));
     const { courseId } = body;
-    
+
     if (!courseId) {
       return new Response(JSON.stringify({ error: 'courseId is required' }), {
         status: 400,
@@ -234,14 +238,14 @@ Deno.serve(async (req) => {
     }
 
     const jobId = `course-${courseId.slice(0, 8)}`;
-    
+
     // Get course info
     const { data: course, error: courseError } = await supabase
       .from('courses')
       .select('id, title, video_url, storage_path, status, chunked')
       .eq('id', courseId)
       .single();
-    
+
     if (courseError || !course) {
       return new Response(JSON.stringify({ error: 'Course not found' }), {
         status: 404,
@@ -250,14 +254,14 @@ Deno.serve(async (req) => {
     }
 
     const videoUrl = course.storage_path || course.video_url || '';
-    
+
     // Check if this is a manifest-based upload and get manifest path
     const manifest = await getManifest(supabase, videoUrl);
-    
+
     if (!manifest) {
-      return new Response(JSON.stringify({ 
+      return new Response(JSON.stringify({
         error: 'Not a chunked upload or manifest not found',
-        videoUrl 
+        videoUrl
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -275,7 +279,7 @@ Deno.serve(async (req) => {
     }
 
     await logEvent(supabase, jobId, 'streaming_extraction_start', 'info',
-      `Starting streaming proxy extraction for ${manifest.chunkCount} chunks (${(manifest.totalSize / (1024*1024*1024)).toFixed(2)} GB)`,
+      `Starting streaming proxy extraction for ${manifest.chunkCount} chunks (${(manifest.totalSize / (1024 * 1024 * 1024)).toFixed(2)} GB)`,
       { courseId, chunkCount: manifest.chunkCount, totalSize: manifest.totalSize, manifestPath }
     );
 
@@ -310,7 +314,7 @@ Deno.serve(async (req) => {
 
     // Update processing queue to move to next step
     await supabase.from('processing_queue')
-      .update({ 
+      .update({
         status: 'completed',
         completed_at: new Date().toISOString(),
       })
@@ -339,7 +343,7 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('[ProcessChunk] Error:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    
+
     // Update course with error if courseId is available
     const reqBody: ProcessChunkRequest = await req.clone().json().catch(() => ({}));
     if (reqBody?.courseId) {
@@ -349,10 +353,10 @@ Deno.serve(async (req) => {
         progress_step: 'failed',
       }).eq('id', reqBody.courseId);
     }
-    
-    return new Response(JSON.stringify({ 
+
+    return new Response(JSON.stringify({
       success: false,
-      error: message 
+      error: message
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
