@@ -80,7 +80,7 @@ async function generateMergedPdfContent(
     durationFormatted: formatTimestamp(totalDuration),
     frameCount: frames.length,
     generatedAt: new Date().toISOString(),
-    frames: frames.slice(0, 100).map(f => ({ // Sample first 100 frames
+    frames: frames.slice(0, 15000).map(f => ({ // Sample up to 15,000 frames
       url: f.url,
       timestamp: f.timestamp,
       timestampFormatted: formatTimestamp(f.timestamp),
@@ -96,12 +96,12 @@ Deno.serve(async (req) => {
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-  
+
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     const body: MergeRequest = await req.json();
-    
+
     if (!body.courseId) {
       return new Response(JSON.stringify({
         success: false,
@@ -113,7 +113,7 @@ Deno.serve(async (req) => {
     }
 
     const jobId = `merge-${body.courseId.slice(0, 8)}-${Date.now()}`;
-    
+
     console.log(`[MergeChunks] Starting merge for course ${body.courseId}`);
     await logEvent(supabase, jobId, 'merge_start', 'info',
       'Starting chunk merge',
@@ -132,7 +132,7 @@ Deno.serve(async (req) => {
     }
 
     const status = completion[0];
-    
+
     console.log(`[MergeChunks] Chunk status: ${status.completed_chunks}/${status.total_chunks} complete, ${status.failed_chunks} failed`);
 
     // Check if all chunks are complete
@@ -140,13 +140,13 @@ Deno.serve(async (req) => {
       if (status.failed_chunks > 0) {
         await logEvent(supabase, jobId, 'merge_blocked', 'warn',
           `Cannot merge: ${status.failed_chunks} chunks failed`,
-          { 
+          {
             totalChunks: status.total_chunks,
             completedChunks: status.completed_chunks,
             failedChunks: status.failed_chunks
           }
         );
-        
+
         return new Response(JSON.stringify({
           success: false,
           error: `${status.failed_chunks} chunks failed. Use forceMerge to proceed anyway.`,
@@ -160,7 +160,7 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
-      
+
       return new Response(JSON.stringify({
         success: false,
         error: 'Not all chunks are complete',
@@ -196,24 +196,24 @@ Deno.serve(async (req) => {
     // Gather all frames from all chunks
     const allFrames: { url: string; timestamp: number; chunkIndex: number }[] = [];
     let totalDuration = 0;
-    
+
     for (const chunk of chunks) {
       const frameUrls = (chunk.frame_urls as string[]) || [];
       const chunkDuration = chunk.end_seconds - chunk.start_seconds;
-      
+
       // Calculate timestamps for each frame
       frameUrls.forEach((url, frameIndex) => {
         const framesPerSecond = 3; // Our standard FPS
         const relativeTime = frameIndex / framesPerSecond;
         const absoluteTime = chunk.start_seconds + relativeTime;
-        
+
         allFrames.push({
           url,
           timestamp: absoluteTime,
           chunkIndex: chunk.chunk_index
         });
       });
-      
+
       totalDuration = Math.max(totalDuration, chunk.end_seconds);
     }
 
@@ -235,7 +235,7 @@ Deno.serve(async (req) => {
 
     // Store merged artifact
     const storagePath = `merged-artifacts/${body.courseId}/artifact.json`;
-    
+
     const { error: uploadError } = await supabase.storage
       .from('course-files')
       .upload(storagePath, pdfContent, {
@@ -275,7 +275,7 @@ Deno.serve(async (req) => {
           storagePath,
           type: 'artifact'
         }],
-        frame_urls: allFrames.slice(0, 500).map(f => f.url), // Store sample for preview
+        frame_urls: allFrames.slice(0, 15000).map(f => f.url), // Store sample for preview
         total_frames: allFrames.length,
         video_duration_seconds: totalDuration,
         updated_at: new Date().toISOString()
@@ -290,7 +290,7 @@ Deno.serve(async (req) => {
           status: 'completed',
           progress: 100,
           completed_at: new Date().toISOString(),
-          frame_urls: allFrames.slice(0, 500).map(f => f.url),
+          frame_urls: allFrames.slice(0, 15000).map(f => f.url),
           total_frames: allFrames.length,
           updated_at: new Date().toISOString()
         })

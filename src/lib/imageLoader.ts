@@ -40,23 +40,23 @@ function loadImageElement(
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous'; // Critical: allows canvas access
-    
+
     const timeoutId = setTimeout(() => {
       img.onload = null;
       img.onerror = null;
       reject(new Error(`Timeout after ${timeoutMs}ms`));
     }, timeoutMs);
-    
+
     img.onload = () => {
       clearTimeout(timeoutId);
       resolve(img);
     };
-    
+
     img.onerror = () => {
       clearTimeout(timeoutId);
       reject(new Error('Image load failed'));
     };
-    
+
     img.src = url;
   });
 }
@@ -69,26 +69,26 @@ function imageToBase64ViaCanvas(img: HTMLImageElement, quality: number = 0.5): s
     const scale = Math.min(1, MAX_WIDTH / img.naturalWidth);
     const width = img.naturalWidth * scale;
     const height = img.naturalHeight * scale;
-    
+
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d');
-    
+
     if (!ctx) {
       console.error('[imageLoader] Canvas context unavailable');
       return null;
     }
-    
+
     ctx.drawImage(img, 0, 0, width, height);
     const dataUrl = canvas.toDataURL('image/jpeg', quality);
-    
+
     // Validate that we got actual image data, not empty canvas
     if (dataUrl.length < 1000) {
       console.warn('[imageLoader] Canvas produced suspiciously small output');
       return null;
     }
-    
+
     return dataUrl;
   } catch (err) {
     // Canvas tainted by CORS - this shouldn't happen with crossOrigin='anonymous'
@@ -113,33 +113,33 @@ export async function imageToBase64WithRetry(
   if (cached) {
     return { dataUrl: cached, success: true };
   }
-  
+
   let lastError: string | undefined;
-  
+
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       // Only log on retry to reduce console spam
       if (attempt > 0) {
         console.log(`[imageLoader] Retry ${attempt}/${retries} for: ${url.substring(0, 50)}...`);
       }
-      
+
       const img = await loadImageElement(url, timeoutMs);
-      
+
       if (!img.naturalWidth || !img.naturalHeight) {
         lastError = 'Image loaded but has zero dimensions';
         continue;
       }
-      
+
       const dataUrl = imageToBase64ViaCanvas(img, quality);
-      
+
       if (!dataUrl) {
         lastError = 'Canvas conversion failed';
         continue;
       }
-      
+
       // Cache the result for future use
       imageCache.set(url, dataUrl);
-      
+
       return { dataUrl, success: true };
     } catch (err) {
       if (err instanceof Error) {
@@ -153,14 +153,14 @@ export async function imageToBase64WithRetry(
       } else {
         lastError = 'Unknown error';
       }
-      
+
       // Brief delay before retry
       if (attempt < retries) {
         await new Promise(r => setTimeout(r, 500));
       }
     }
   }
-  
+
   console.error(`[imageLoader] FAILED after ${retries + 1} attempts: ${url.substring(0, 60)}... - ${lastError}`);
   return {
     dataUrl: null,
@@ -174,15 +174,15 @@ export async function imageToBase64WithRetry(
  */
 export function sampleFramesEvenly(frames: string[], max: number): string[] {
   if (frames.length <= max) return frames;
-  
+
   const step = frames.length / max;
   const sampled: string[] = [];
-  
+
   for (let i = 0; i < max; i++) {
     const idx = Math.floor(i * step);
     sampled.push(frames[idx]);
   }
-  
+
   return sampled;
 }
 
@@ -190,14 +190,14 @@ export function sampleFramesEvenly(frames: string[], max: number): string[] {
  * Calculate appropriate frame sample size for course size
  */
 export function getRecommendedFrameSampleSize(totalFrames: number): number {
-  // Very large courses (5000+ frames): sample 100 frames
-  if (totalFrames > 5000) return 100;
-  // Large courses (2000-5000 frames): sample 150 frames
-  if (totalFrames > 2000) return 150;
-  // Medium courses (500-2000 frames): sample 200 frames
-  if (totalFrames > 500) return 200;
-  // Small courses: use all frames up to 250
-  return Math.min(totalFrames, 250);
+  // Very large courses (15,000+ frames): sample 1500 frames
+  if (totalFrames > 10000) return 1500;
+  // Large courses (5000-10000 frames): sample 1000 frames
+  if (totalFrames > 5000) return 1000;
+  // Medium courses (2000-5000 frames): sample 500 frames
+  if (totalFrames > 2000) return 500;
+  // Small courses: use all frames up to 500
+  return Math.min(totalFrames, 500);
 }
 
 /**
@@ -223,17 +223,17 @@ export async function batchLoadImages(
   const results: ImageLoadResult[] = [];
   let successCount = 0;
   let failCount = 0;
-  
+
   // OPTIMIZED: Increased batch size to 15 for faster parallel loading
   // Modern browsers handle 15+ concurrent image loads efficiently
   const BATCH_SIZE = 15;
-  
+
   for (let i = 0; i < urls.length; i += BATCH_SIZE) {
     const batch = urls.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.all(
       batch.map(url => imageToBase64WithRetry(url, quality))
     );
-    
+
     for (const result of batchResults) {
       results.push(result);
       if (result.success) {
@@ -242,10 +242,10 @@ export async function batchLoadImages(
         failCount++;
       }
     }
-    
+
     onProgress?.(results.length, urls.length, failCount);
   }
-  
+
   return { results, successCount, failCount };
 }
 
@@ -256,13 +256,13 @@ export function preloadImages(urls: string[], quality: number = 0.5): void {
   // Load in background without blocking
   const PRELOAD_BATCH = 10;
   let idx = 0;
-  
+
   const loadNext = () => {
     if (idx >= urls.length) return;
-    
+
     const batch = urls.slice(idx, idx + PRELOAD_BATCH);
     idx += PRELOAD_BATCH;
-    
+
     Promise.all(batch.map(url => imageToBase64WithRetry(url, quality)))
       .then(() => {
         // Continue with next batch after a small delay to not block main thread
@@ -273,6 +273,6 @@ export function preloadImages(urls: string[], quality: number = 0.5): void {
         setTimeout(loadNext, 50);
       });
   };
-  
+
   loadNext();
 }

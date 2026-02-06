@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { analyzeError, type ErrorAnalysis } from '@/lib/errorAnalyzer';
 import { ManualProcessingCard } from '@/components/ManualProcessingCard';
-import { 
-  Plus, RefreshCw, 
+import {
+  Plus, RefreshCw,
   CheckCircle, Clock, Loader2, Sparkles, Check,
   AlertTriangle, Zap, ArrowRight, Link2, FileText, ChevronDown, ChevronRight, Download, X, Layers, Mail, Upload, Globe, Lock, Paperclip, Pencil, Key
 } from 'lucide-react';
@@ -156,7 +156,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { user, signOut, isLoading: authLoading } = useAuth();
   const email = user?.email || '';
-  
+
   const [courses, setCourses] = useState<Course[]>([]);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -176,13 +176,13 @@ export default function Dashboard() {
   const [isSavingBlockName, setIsSavingBlockName] = useState(false);
   const [showWelcomeConfetti, setShowWelcomeConfetti] = useState(false);
   const [addFilesDialog, setAddFilesDialog] = useState<{ open: boolean; courseId: string; courseTitle: string; existingFiles: CourseFile[] } | null>(null);
-  
+
   // Folder state
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [isFoldersLoading, setIsFoldersLoading] = useState(true);
   const [moveToFolderOpen, setMoveToFolderOpen] = useState(false);
-  
+
   const lastSelfRecoveryAtRef = useRef(0);
   const apiKeysRef = useRef<HTMLDivElement>(null);
 
@@ -201,7 +201,7 @@ export default function Dashboard() {
     // Run watchdog on mount and every 2 minutes
     runWatchdog();
     const watchdogInterval = setInterval(runWatchdog, 120000);
-    
+
     return () => clearInterval(watchdogInterval);
   }, []);
 
@@ -239,21 +239,21 @@ export default function Dashboard() {
     // Dynamic polling: check current state each tick
     const pollTick = () => {
       const currentCourses = coursesRef.current;
-      const hasProcessing = currentCourses.some(c => 
+      const hasProcessing = currentCourses.some(c =>
         !['completed', 'failed'].includes(c.status) ||
         c.modules?.some(m => !['completed', 'failed'].includes(m.status))
       );
-      
+
       // Fast poll (2s) when processing, slow poll (10s) when idle
       const nextDelay = hasProcessing ? 2000 : 10000;
-      
+
       loadCourses(false);
       timeoutRef.current = setTimeout(pollTick, nextDelay);
     };
 
     // Start polling after initial delay
     const timeoutRef = { current: setTimeout(pollTick, 2000) as NodeJS.Timeout };
-    
+
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
@@ -287,27 +287,27 @@ export default function Dashboard() {
   useEffect(() => {
     // Build list of all processing items (modules or standalone courses)
     const processingItems: { id: string; progress: number; status: string; progress_step?: string }[] = [];
-    
+
     courses.forEach(course => {
       if (course.modules && course.modules.length > 0) {
         // Add processing modules
         course.modules.forEach(mod => {
           if (!['completed', 'failed'].includes(mod.status)) {
-            processingItems.push({ 
-              id: mod.id, 
-              progress: mod.progress, 
+            processingItems.push({
+              id: mod.id,
+              progress: mod.progress,
               status: mod.status,
-              progress_step: mod.progress_step 
+              progress_step: mod.progress_step
             });
           }
         });
       } else if (!['completed', 'failed'].includes(course.status)) {
         // Standalone course
-        processingItems.push({ 
-          id: course.id, 
-          progress: course.progress, 
+        processingItems.push({
+          id: course.id,
+          progress: course.progress,
           status: course.status,
-          progress_step: course.progress_step 
+          progress_step: course.progress_step
         });
       }
     });
@@ -320,7 +320,7 @@ export default function Dashboard() {
       const isQueued = item.status === 'queued' || item.progress_step === 'queued';
       const currentDisplay = displayProgress[item.id];
       const actualProgress = item.progress;
-      
+
       // For queued items with 0 or very low backend progress, start at 1%
       if (isQueued && actualProgress < 5) {
         initialProgress[item.id] = currentDisplay ?? 1;
@@ -332,7 +332,7 @@ export default function Dashboard() {
         initialProgress[item.id] = currentDisplay ?? Math.max(1, actualProgress);
       }
     });
-    
+
     setDisplayProgress(prev => ({ ...prev, ...initialProgress }));
 
     // Micro-increment timer - smooth progress updates every 800ms for visible decimal changes
@@ -343,7 +343,7 @@ export default function Dashboard() {
           const current = updated[item.id] ?? 1;
           const actualProgress = item.progress;
           const isQueued = item.status === 'queued' || item.progress_step === 'queued';
-          
+
           // Calculate a reasonable target based on step - allow more headroom for visible increments
           let targetMax = 99;
           if (isQueued) targetMax = 12; // Allow more room for queued items
@@ -351,7 +351,7 @@ export default function Dashboard() {
           else if (actualProgress < 60) targetMax = Math.min(actualProgress + 3, 63);
           else if (actualProgress < 80) targetMax = Math.min(actualProgress + 2, 82);
           else targetMax = Math.min(actualProgress + 1, 99);
-          
+
           if (current < targetMax) {
             // Minimum 0.1 increment ensures visible decimal changes (8.0 -> 8.1 -> 8.2)
             const distanceToTarget = targetMax - current;
@@ -381,7 +381,7 @@ export default function Dashboard() {
       });
 
       if (error) throw error;
-      
+
       // Force deep comparison by creating new course objects when progress changes
       const newCourses = (data.courses || []).map((course: Course) => ({
         ...course,
@@ -392,7 +392,7 @@ export default function Dashboard() {
           _lastUpdate: `${m.id}-${m.status}-${m.progress}-${m.progress_step}`,
         })),
       }));
-      
+
       setCourses(newCourses);
 
       // Self-recovery: if we see a course in an intermediate status but its queue is missing,
@@ -405,7 +405,7 @@ export default function Dashboard() {
       const now = Date.now();
       if (hasPotentialStuck && now - lastSelfRecoveryAtRef.current > 60000) {
         lastSelfRecoveryAtRef.current = now;
-        supabase.functions.invoke('process-course', { body: { action: 'watchdog' } }).catch(() => {});
+        supabase.functions.invoke('process-course', { body: { action: 'watchdog' } }).catch(() => { });
       }
     } catch (err) {
       console.error('Failed to load courses:', err);
@@ -422,15 +422,15 @@ export default function Dashboard() {
     if (course.modules && course.modules.length > 0) {
       return course.modules[0].module_number ?? 1;
     }
-    
+
     // Try to extract from description first (e.g., "Module 2: Some Title" or just "Module 2")
     const descMatch = course.description?.match(/module\s*(\d+)/i);
     if (descMatch) return parseInt(descMatch[1], 10);
-    
+
     // Fall back to checking if title ends with a number pattern
     const titleMatch = course.title?.match(/module\s*(\d+)/i);
     if (titleMatch) return parseInt(titleMatch[1], 10);
-    
+
     // Return 0 to indicate "no explicit number" - will be assigned sequentially later
     return 0;
   };
@@ -447,7 +447,7 @@ export default function Dashboard() {
   // Group courses into training blocks by title (strip module number from title for grouping)
   const groupCoursesIntoBlocks = (courses: Course[]): TrainingBlock[] => {
     const blockMap = new Map<string, Course[]>();
-    
+
     courses.forEach(course => {
       // Use the course title as the block name (training block)
       const blockName = course.title;
@@ -460,7 +460,7 @@ export default function Dashboard() {
     return Array.from(blockMap.entries()).map(([name, blockCourses]) => {
       // Build display items: if course has modules, use them; otherwise use the course itself
       const displayItems: DisplayItem[] = [];
-      
+
       blockCourses.forEach(course => {
         if (course.modules && course.modules.length > 0) {
           // Multi-module course: add each module as a display item
@@ -507,7 +507,7 @@ export default function Dashboard() {
 
       // Sort display items by module number
       displayItems.sort((a, b) => a.moduleNumber - b.moduleNumber);
-      
+
       // Calculate counts from display items (not courses)
       const totalModules = displayItems.length;
       const completedModules = displayItems.filter(d => d.status === 'completed').length;
@@ -515,7 +515,7 @@ export default function Dashboard() {
       const failedModules = displayItems.filter(d => d.status === 'failed').length;
       const manualReviewModules = displayItems.filter(d => d.status === 'manual_review').length;
       const queuedModules = displayItems.filter(d => d.status === 'queued').length;
-      
+
       return {
         name,
         courses: blockCourses,
@@ -549,9 +549,9 @@ export default function Dashboard() {
         .select('id, name')
         .eq('user_id', user.id)
         .order('name');
-      
+
       if (error) throw error;
-      
+
       // Calculate training block count per folder (unique course titles, not individual course rows)
       // A training block is a group of courses with the same title (e.g., multi-module courses)
       const folderTrainingBlocks = new Map<string, Set<string>>();
@@ -565,7 +565,7 @@ export default function Dashboard() {
           folderTrainingBlocks.get(fId)!.add(c.title);
         }
       });
-      
+
       setFolders((data || []).map(f => ({
         id: f.id,
         name: f.name,
@@ -592,7 +592,7 @@ export default function Dashboard() {
       const { error } = await supabase
         .from('projects')
         .insert({ name, user_id: user.id });
-      
+
       if (error) throw error;
       toast.success('Folder created');
       loadFolders();
@@ -608,7 +608,7 @@ export default function Dashboard() {
         .from('projects')
         .update({ name: newName })
         .eq('id', folderId);
-      
+
       if (error) throw error;
       toast.success('Folder renamed');
       loadFolders();
@@ -625,13 +625,13 @@ export default function Dashboard() {
         .from('courses')
         .update({ project_id: null })
         .eq('project_id', folderId);
-      
+
       // Then delete the folder
       const { error } = await supabase
         .from('projects')
         .delete()
         .eq('id', folderId);
-      
+
       if (error) throw error;
       toast.success('Folder deleted');
       loadFolders();
@@ -645,21 +645,21 @@ export default function Dashboard() {
   const handleMoveToFolder = async (folderId: string | null) => {
     const courseIds = Array.from(selectedCourses);
     if (courseIds.length === 0) return;
-    
+
     try {
       // Use edge function with service role to move (bypasses RLS)
       const { data, error } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'move-to-folder', 
+        body: {
+          action: 'move-to-folder',
           email,
           courseIds,
           folderId
         },
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      
+
       toast.success(`Moved ${courseIds.length} training${courseIds.length > 1 ? 's' : ''} to folder`);
       setSelectedCourses(new Set());
       loadCourses();
@@ -674,7 +674,7 @@ export default function Dashboard() {
     if (!user?.id) return;
     const courseIds = Array.from(selectedCourses);
     if (courseIds.length === 0) return;
-    
+
     try {
       // Create folder (this should work with RLS since we're inserting as the user)
       const { data: newFolder, error: createError } = await supabase
@@ -682,22 +682,22 @@ export default function Dashboard() {
         .insert({ name: folderName, user_id: user.id })
         .select('id')
         .single();
-      
+
       if (createError) throw createError;
-      
+
       // Move courses to new folder using edge function (bypasses RLS)
       const { data, error: moveError } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'move-to-folder', 
+        body: {
+          action: 'move-to-folder',
           email,
           courseIds,
           folderId: newFolder.id
         },
       });
-      
+
       if (moveError) throw moveError;
       if (data?.error) throw new Error(data.error);
-      
+
       toast.success(`Created folder and moved ${courseIds.length} training${courseIds.length > 1 ? 's' : ''}`);
       setSelectedCourses(new Set());
       loadCourses();
@@ -711,13 +711,13 @@ export default function Dashboard() {
   // Filter training blocks by selected folder
   const filteredTrainingBlocks = (() => {
     const allBlocks = groupCoursesIntoBlocks(courses);
-    
+
     if (selectedFolderId === null || selectedFolderId === 'uncategorized') {
       // Main dashboard view: show only courses NOT in any folder
       const uncategorizedCourses = courses.filter(c => !(c as any).project_id);
       return groupCoursesIntoBlocks(uncategorizedCourses);
     }
-    
+
     // Show only courses in the selected folder
     const folderCourses = courses.filter(c => (c as any).project_id === selectedFolderId);
     return groupCoursesIntoBlocks(folderCourses);
@@ -739,19 +739,19 @@ export default function Dashboard() {
 
   const handleRetry = async (courseId: string, errorAnalysis: ErrorAnalysis) => {
     setRetryingCourses(prev => new Set([...prev, courseId]));
-    
+
     try {
       const { error } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'retry', 
+        body: {
+          action: 'retry',
           courseId,
-          fixStrategy: errorAnalysis.fixStrategy 
+          fixStrategy: errorAnalysis.fixStrategy
         },
       });
 
       if (error) throw error;
-      toast.success(errorAnalysis.canAutoFix 
-        ? `Retrying with smart fix: ${errorAnalysis.fixStrategy}` 
+      toast.success(errorAnalysis.canAutoFix
+        ? `Retrying with smart fix: ${errorAnalysis.fixStrategy}`
         : 'Retrying processing...'
       );
       loadCourses();
@@ -773,8 +773,8 @@ export default function Dashboard() {
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
@@ -813,7 +813,7 @@ export default function Dashboard() {
         .from('courses')
         .update({ team_notification_email: teamEmail })
         .eq('id', courseId);
-      
+
       if (error) throw error;
       toast.success(`We'll email ${teamEmail} when your OneDuo is ready!`);
     } catch (err) {
@@ -829,14 +829,14 @@ export default function Dashboard() {
         p_course_id: courseId,
         p_enabled: !currentlyEnabled
       });
-      
+
       if (error) throw error;
-      
+
       // Update local state
-      setCourses(prev => prev.map(c => 
+      setCourses(prev => prev.map(c =>
         c.id === courseId ? { ...c, share_enabled: !currentlyEnabled } : c
       ));
-      
+
       toast.success(!currentlyEnabled ? 'Public sharing enabled' : 'Public sharing disabled');
     } catch (err) {
       console.error('Failed to toggle sharing:', err);
@@ -853,10 +853,10 @@ export default function Dashboard() {
       const { data, error } = await supabase.functions.invoke('resend-access-email', {
         body: { courseId, email }
       });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      
+
       toast.success('New secure access link sent to your email!', {
         description: 'Check your inbox for a fresh 24-hour access link.',
         duration: 5000
@@ -883,9 +883,9 @@ export default function Dashboard() {
       const { data, error } = await supabase.storage
         .from('course-files')
         .download(file.storagePath);
-      
+
       if (error) throw error;
-      
+
       const url = URL.createObjectURL(data);
       const a = document.createElement('a');
       a.href = url;
@@ -894,7 +894,7 @@ export default function Dashboard() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
+
       toast.success(`Downloaded ${file.name}`);
     } catch (err) {
       console.error('Failed to download file:', err);
@@ -906,10 +906,10 @@ export default function Dashboard() {
   const getEstimatedTimeRemaining = (course: Course): string => {
     const duration = course.video_duration_seconds || 0;
     const progress = course.progress || 0;
-    
+
     if (progress >= 95) return '< 1 min';
     if (progress >= 80) return '< 2 min';
-    
+
     // For short videos (under 10 min), processing is fast
     if (duration > 0 && duration < 600) {
       const estimatedMins = Math.max(2, Math.ceil((duration / 60) * 0.5));
@@ -917,7 +917,7 @@ export default function Dashboard() {
       const remainingMins = Math.max(1, Math.ceil((remainingProgress / 100) * estimatedMins));
       return remainingMins <= 1 ? '< 1 min' : `~${remainingMins} min`;
     }
-    
+
     // For medium videos (10-30 min), still reasonable
     if (duration >= 600 && duration < 1800) {
       const estimatedMins = Math.ceil((duration / 60) * 0.8);
@@ -925,7 +925,7 @@ export default function Dashboard() {
       const remainingMins = Math.max(2, Math.ceil((remainingProgress / 100) * estimatedMins));
       return `~${remainingMins} min`;
     }
-    
+
     // For long videos, give realistic range
     if (duration >= 1800) {
       const estimatedMins = Math.ceil((duration / 60) * 1.2);
@@ -936,7 +936,7 @@ export default function Dashboard() {
       const mins = remainingMins % 60;
       return `~${hours}h ${mins}m`;
     }
-    
+
     // Fallback for unknown duration - short videos are fast
     return '~2-5 min';
   };
@@ -958,15 +958,15 @@ export default function Dashboard() {
       const isJustStarting = ['queued', 'transcribing'].includes(course.status);
       return { isStale: false, message: isJustStarting ? 'Starting...' : 'Initializing...', isStarting: true };
     }
-    
+
     const activityTime = new Date(lastActivity).getTime();
     const now = Date.now();
     const secondsAgo = Math.floor((now - activityTime) / 1000);
-    
+
     if (secondsAgo < 30) return { isStale: false, message: 'Synced just now', isStarting: false };
     if (secondsAgo < 60) return { isStale: false, message: `Synced ${secondsAgo}s ago`, isStarting: false };
     if (secondsAgo < 120) return { isStale: false, message: `Synced ${Math.floor(secondsAgo / 60)}m ago`, isStarting: false };
-    
+
     // Stale - no activity for 2+ minutes
     const minsAgo = Math.floor(secondsAgo / 60);
     return { isStale: true, message: `Paused ${minsAgo}m`, isStarting: false };
@@ -976,19 +976,19 @@ export default function Dashboard() {
   const getStageLabel = (item: { progress_step?: string; status?: string }, displayProgress: number): string => {
     const progressStep = item.progress_step?.toLowerCase() || '';
     const status = item.status?.toLowerCase() || '';
-    
+
     // Priority 1: Use progress_step if available (new system)
     if (progressStep && progressStepConfig[progressStep]) {
       return progressStepConfig[progressStep].label;
     }
-    
+
     // Priority 2: Use status if informative (legacy fallback)
     if (status === 'transcribing' || status.includes('transcrib')) return 'Transcribing audio...';
     if (status === 'extracting_frames' || status.includes('extract')) return 'Extracting frames...';
     if (status === 'analyzing_audio' || status.includes('analyz')) return 'Analyzing content...';
     if (status === 'training_ai' || status.includes('train')) return 'Building AI context...';
     if (status === 'rendering' || status.includes('render')) return 'Generating snapshots...';
-    
+
     // Priority 3: Fall back to progress-based messaging
     if (displayProgress < 10) return 'Starting processing...';
     if (displayProgress < 40) return 'Extracting frames...';
@@ -1001,16 +1001,16 @@ export default function Dashboard() {
   // Get estimated time based on progress step and video duration
   const getEstimatedTime = (item: DisplayItem): string | null => {
     if (!item.video_duration_seconds || item.video_duration_seconds <= 0) return null;
-    
+
     const progressStep = item.progress_step || 'queued';
     const config = progressStepConfig[progressStep];
     if (!config) return null;
-    
+
     // Rough estimate: 1 minute of video ≈ 30 seconds of processing
     const totalEstimate = Math.ceil(item.video_duration_seconds / 2);
     const remainingPercent = (100 - config.minProgress) / 100;
     const remainingSeconds = Math.ceil(totalEstimate * remainingPercent);
-    
+
     if (remainingSeconds < 60) return `~${remainingSeconds}s remaining`;
     const mins = Math.ceil(remainingSeconds / 60);
     return `~${mins}m remaining`;
@@ -1028,19 +1028,19 @@ export default function Dashboard() {
       setEditingBlockName(null);
       return;
     }
-    
+
     setIsSavingBlockName(true);
     try {
       // Use edge function with service role to rename (bypasses RLS)
       // Email is derived from JWT token in edge function - no need to pass explicitly
       const { data, error } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'rename-training', 
+        body: {
+          action: 'rename-training',
           courseIds,
           newTitle: newName.trim()
         },
       });
-      
+
       if (error) {
         console.error('[Dashboard] Rename invoke error:', error);
         throw error;
@@ -1049,7 +1049,7 @@ export default function Dashboard() {
         console.error('[Dashboard] Rename data.error:', data.error);
         throw new Error(data.error);
       }
-      
+
       toast.success('Training renamed');
       loadCourses(false);
     } catch (err: any) {
@@ -1084,18 +1084,18 @@ export default function Dashboard() {
     try {
       // Use edge function with service role to delete (bypasses RLS)
       const { data, error } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'delete-course', 
+        body: {
+          action: 'delete-course',
           courseId,
-          email 
+          email
         },
       });
-      
+
       console.log('[Dashboard] Delete course response:', { data, error });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      
+
       setCourses(prev => prev.filter(c => c.id !== courseId));
       toast.success('Module deleted successfully');
     } catch (err) {
@@ -1114,18 +1114,18 @@ export default function Dashboard() {
     try {
       // GOVERNANCE: Use edge function for soft-delete via execution frame
       const { data, error } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'delete-module', 
+        body: {
+          action: 'delete-module',
           moduleId,
-          email 
+          email
         },
       });
-      
+
       console.log('[Dashboard] Delete module response:', { data, error });
-      
+
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      
+
       // Refresh courses to get updated module list
       await loadCourses();
       toast.success('Module deleted successfully');
@@ -1141,19 +1141,19 @@ export default function Dashboard() {
   // Retry individual module
   const handleRetryModule = async (moduleId: string, errorAnalysis: ErrorAnalysis) => {
     setRetryingCourses(prev => new Set([...prev, moduleId]));
-    
+
     try {
       const { error } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'retry-module', 
+        body: {
+          action: 'retry-module',
           moduleId,
-          fixStrategy: errorAnalysis.fixStrategy 
+          fixStrategy: errorAnalysis.fixStrategy
         },
       });
 
       if (error) throw error;
-      toast.success(errorAnalysis.canAutoFix 
-        ? `Retrying with smart fix: ${errorAnalysis.fixStrategy}` 
+      toast.success(errorAnalysis.canAutoFix
+        ? `Retrying with smart fix: ${errorAnalysis.fixStrategy}`
         : 'Retrying processing...'
       );
       loadCourses();
@@ -1171,21 +1171,21 @@ export default function Dashboard() {
   // Repair stalled module (one-click recovery)
   const handleRepairModule = async (moduleId: string) => {
     setRetryingCourses(prev => new Set([...prev, moduleId]));
-    
+
     try {
       const { data, error } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'repair-module', 
+        body: {
+          action: 'repair-module',
           moduleId
         },
       });
 
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      
+
       toast.success(
-        data?.strategy === 'mark_partial_ready' 
-          ? 'Module marked as partial-ready for download' 
+        data?.strategy === 'mark_partial_ready'
+          ? 'Module marked as partial-ready for download'
           : 'Module queued for repair'
       );
       loadCourses();
@@ -1202,21 +1202,21 @@ export default function Dashboard() {
 
   // Kickstart - manually trigger queue processing for stuck/queued courses
   const [kickstartingCourses, setKickstartingCourses] = useState<Set<string>>(new Set());
-  
+
   const handleKickstart = async (courseId: string) => {
     setKickstartingCourses(prev => new Set([...prev, courseId]));
-    
+
     try {
       const { data, error } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'kickstart', 
+        body: {
+          action: 'kickstart',
           courseId
         },
       });
 
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      
+
       toast.success(data?.message || 'Processing kickstarted!');
       loadCourses();
     } catch (err: any) {
@@ -1233,18 +1233,18 @@ export default function Dashboard() {
   // Resume failed course with recoverable data (race condition fix)
   const handleResumeFailed = async (courseId: string) => {
     setRetryingCourses(prev => new Set([...prev, courseId]));
-    
+
     try {
       const { data, error } = await supabase.functions.invoke('process-course', {
-        body: { 
-          action: 'resume-failed', 
+        body: {
+          action: 'resume-failed',
           courseId
         },
       });
 
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      
+
       toast.success(`Resumed processing from ${data.resumeStep}`, {
         description: `Recovered ${data.hasFrames ? 'frames' : ''}${data.hasFrames && data.hasTranscript ? ' + ' : ''}${data.hasTranscript ? 'transcript' : ''}`,
         duration: 4000
@@ -1264,18 +1264,18 @@ export default function Dashboard() {
   // Check if a failed course has recoverable data
   const hasRecoverableData = (course: Course): boolean => {
     const hasFrames = Array.isArray(course.frame_urls) && course.frame_urls.length > 0;
-    const hasTranscript = course.transcript && 
+    const hasTranscript = course.transcript &&
       ((Array.isArray(course.transcript) && course.transcript.length > 0) ||
-       (course.transcript?.segments && course.transcript.segments.length > 0));
+        (course.transcript?.segments && course.transcript.segments.length > 0));
     return hasFrames || hasTranscript;
   };
 
   // Check if a course has transcript but no frames (for transcript-only export fallback)
   const hasTranscriptOnly = (course: Course): boolean => {
     const hasFrames = Array.isArray(course.frame_urls) && course.frame_urls.length > 0;
-    const hasTranscript = course.transcript && 
+    const hasTranscript = course.transcript &&
       ((Array.isArray(course.transcript) && course.transcript.length > 0) ||
-       (course.transcript?.segments && course.transcript.segments.length > 0));
+        (course.transcript?.segments && course.transcript.segments.length > 0));
     return hasTranscript && !hasFrames;
   };
 
@@ -1287,7 +1287,7 @@ export default function Dashboard() {
     // 'awaiting_webhook' means we're waiting for Replicate/AssemblyAI - this is normal, not stalled
     const nonStalledStatuses = ['completed', 'failed', 'queued', 'pending', 'awaiting_webhook'];
     if (nonStalledStatuses.includes(item.status)) return false;
-    
+
     // Also check progress_step - extracting_frames and transcribing involve external webhooks
     // These can take 30-60+ minutes for long videos (4+ hours) and are NOT stalled
     const webhookWaitingSteps = ['extracting_frames', 'transcribing', 'analyzing', 'transcribe_and_extract'];
@@ -1299,18 +1299,18 @@ export default function Dashboard() {
       const extraMinutesPerHour = Math.max(0, videoDurationHours - 1) * 10;
       const dynamicThresholdMinutes = Math.min(baseThresholdMinutes + extraMinutesPerHour, 60);
       const webhookThreshold = dynamicThresholdMinutes * 60 * 1000;
-      
+
       const now = Date.now();
       const timestamps = [item.heartbeat_at, item.updated_at, item.created_at].filter(Boolean);
       if (timestamps.length === 0) return false;
       const mostRecentActivity = Math.max(...timestamps.map(ts => new Date(ts!).getTime()));
       return now - mostRecentActivity > webhookThreshold;
     }
-    
+
     // Check multiple activity indicators - any recent activity = not stalled
     const now = Date.now();
     const stalledThreshold = 5 * 60 * 1000; // 5 minutes for other steps
-    
+
     // Priority: heartbeat_at > updated_at > created_at
     // This prevents false positives when webhooks update progress but not heartbeat
     const timestamps = [
@@ -1318,33 +1318,33 @@ export default function Dashboard() {
       item.updated_at,
       item.created_at
     ].filter(Boolean);
-    
+
     if (timestamps.length === 0) return false; // No timestamps = not stalled yet
-    
+
     // Find the most recent activity
     const mostRecentActivity = Math.max(
       ...timestamps.map(ts => new Date(ts!).getTime())
     );
-    
+
     return now - mostRecentActivity > stalledThreshold;
   };
 
   const handleExportForChatGPT = async (course: Course) => {
     try {
       toast.loading('Generating export...', { id: 'export' });
-      
+
       const { data: response, error } = await supabase.functions.invoke('get-public-course', {
         body: { courseId: course.id },
       });
 
       if (error) throw error;
       if (!response?.course) throw new Error('Course not found');
-      
+
       const data = response.course;
 
       const duration = formatDuration(data.video_duration_seconds);
       const frameCount = data.frame_urls?.length || 0;
-      
+
       let transcriptText = '';
       if (data.transcript && Array.isArray(data.transcript)) {
         transcriptText = data.transcript.map((segment: any) => {
@@ -1359,7 +1359,7 @@ export default function Dashboard() {
       let frameUrlsText = '';
       if (data.frame_urls && Array.isArray(data.frame_urls)) {
         const framesToShow = data.frame_urls.slice(0, 50);
-        frameUrlsText = framesToShow.map((url: string, i: number) => 
+        frameUrlsText = framesToShow.map((url: string, i: number) =>
           `Frame ${i + 1}: ${url}`
         ).join('\n');
         if (data.frame_urls.length > 50) {
@@ -1392,73 +1392,73 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
   const handleExportPDF = async (course: Course, moduleNumber: number) => {
     setGeneratingPDF(course.id);
     setPdfProgress({ progress: 0, status: 'Starting...', title: course.title });
-    
+
     // Use setTimeout to prevent UI blocking
     await new Promise(resolve => setTimeout(resolve, 0));
-    
+
     try {
       let courseData: any = null;
       let usedSalvagePath = false;
-      
+
       // First try the standard public course path (works for completed courses)
       try {
         const { data: response, error } = await supabase.functions.invoke('get-public-course', {
           body: { courseId: course.id },
         });
-        
+
         if (!error && response?.course) {
           courseData = response.course;
         }
       } catch (e) {
         console.log('[handleExportPDF] Public path failed, will try salvage path');
       }
-      
+
       // If standard path failed or returned no data, AND user is logged in, try salvage path
       if ((!courseData || (!courseData.transcript?.length && !courseData.frame_urls?.length)) && email) {
         console.log(`[handleExportPDF] Trying salvage path for course ${course.id}`);
         setPdfProgress(prev => ({ ...prev, progress: 5, status: 'Recovering data...' }));
-        
+
         const { data: salvageResponse, error: salvageError } = await supabase.functions.invoke('process-course', {
-          body: { 
+          body: {
             action: 'get-export-data',
             courseId: course.id,
             email,
           },
         });
-        
+
         if (salvageError) {
           console.error('[handleExportPDF] Salvage path also failed:', salvageError);
           throw new Error('Could not retrieve course data');
         }
-        
+
         if (salvageResponse?.error) {
           throw new Error(salvageResponse.error);
         }
-        
+
         // Check if salvage returned usable data
         if (!salvageResponse?.hasTranscript && !salvageResponse?.hasFrames) {
           toast.error('No data available yet. Processing may still be in progress.');
           return;
         }
-        
+
         courseData = salvageResponse.course;
         usedSalvagePath = true;
-        
+
         if (salvageResponse.isPartial) {
           toast.info('Generating PDF with partial data. Some content may be missing.');
         }
       }
-      
+
       if (!courseData) {
         throw new Error('Course not found');
       }
-      
+
       // Check if we actually have data to generate PDF
       if (!courseData.transcript?.length && !courseData.frame_urls?.length) {
         toast.error('Module data not ready yet. Please wait for processing to complete.');
         return;
       }
-      
+
       // Wrap PDF generation in a try-catch to prevent UI crashes
       let pdfBlob: Blob;
       try {
@@ -1480,7 +1480,7 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
         console.error('PDF generation failed:', pdfError);
         throw new Error('PDF generation failed. Please try again.');
       }
-      
+
       // Trigger download safely
       try {
         // Create clean filename: use original video filename (without extension) + " - OneDuo.pdf"
@@ -1494,11 +1494,11 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
           // Fallback to course title
           return `${course.title} - OneDuo.pdf`;
         };
-        
+
         const filename = getCleanFilename(courseData);
         downloadPDF(pdfBlob, filename);
-        
-        const successMessage = usedSalvagePath 
+
+        const successMessage = usedSalvagePath
           ? '✓ PDF downloaded from salvaged data! Upload it to ChatGPT.'
           : '✓ PDF downloaded successfully! Upload it to ChatGPT to enable visual analysis.';
         toast.success(successMessage);
@@ -1520,33 +1520,33 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
   const handleExportModulePDF = async (moduleId: string, moduleTitle: string, courseTitle: string, isPartialSalvage: boolean = false) => {
     setGeneratingPDF(moduleId);
     setPdfProgress({ progress: 0, status: 'Starting...', title: `${courseTitle} - ${moduleTitle}` });
-    
+
     // Use setTimeout to prevent UI blocking
     await new Promise(resolve => setTimeout(resolve, 0));
-    
+
     try {
       let moduleData: any;
-      
+
       if (isPartialSalvage) {
         // SALVAGE PATH: Use get-export-data endpoint which works for partial/failed courses
         // First find the module's parent course and module number
         const moduleItem = courses
           .flatMap(c => c.modules || [])
           .find(m => m.id === moduleId);
-        
+
         if (!moduleItem) {
           throw new Error('Module not found');
         }
-        
+
         // Find the parent course to get the course ID
         const parentCourse = courses.find(c => c.id === moduleItem.course_id);
-        
+
         if (!parentCourse) {
           throw new Error('Parent course not found');
         }
-        
+
         const { data: response, error } = await supabase.functions.invoke('process-course', {
-          body: { 
+          body: {
             action: 'get-export-data',
             courseId: parentCourse.id,
             email,
@@ -1556,13 +1556,13 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
 
         if (error) throw error;
         if (response?.error) throw new Error(response.error);
-        
+
         // Check if any data exists at all
         if (!response?.hasTranscript && !response?.hasFrames) {
           toast.error('No data available yet. Processing may still be in progress.');
           return;
         }
-        
+
         moduleData = response.module || {};
         moduleData.isPartial = response.isPartial;
       } else {
@@ -1574,23 +1574,23 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
         if (error) throw error;
         if (response?.error) throw new Error(response.error);
         if (!response?.module) throw new Error('Module not found');
-        
+
         moduleData = response.module;
       }
-      
+
       // Check if we actually have data to generate PDF
       if (!moduleData.transcript?.length && !moduleData.frame_urls?.length) {
         toast.error('Module data not ready yet. Please wait for processing to complete.');
         return;
       }
-      
+
       // Show warning for partial data
       if (moduleData.isPartial || isPartialSalvage) {
         toast.info('Generating PDF with partial data. Some content may be missing.');
       }
-      
+
       const fullTitle = `${courseTitle} - ${moduleTitle}`;
-      
+
       // Wrap PDF generation in a try-catch to prevent UI crashes
       let pdfBlob: Blob;
       try {
@@ -1612,7 +1612,7 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
         console.error('PDF generation failed:', pdfError);
         throw new Error('PDF generation failed. Please try again.');
       }
-      
+
       // Trigger download safely
       try {
         // Create clean filename: use original video filename (without extension) + " - OneDuo.pdf"
@@ -1627,12 +1627,12 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
           const combinedTitle = moduleTitle ? `${courseTitle} - ${moduleTitle}` : courseTitle;
           return `${combinedTitle} - OneDuo.pdf`;
         };
-        
+
         const filename = getModuleCleanFilename(moduleData, courseTitle, moduleTitle);
         downloadPDF(pdfBlob, filename);
-        
-        toast.success(moduleData.isPartial 
-          ? '✓ Partial PDF downloaded! Some frames or transcript may be missing.' 
+
+        toast.success(moduleData.isPartial
+          ? '✓ Partial PDF downloaded! Some frames or transcript may be missing.'
           : '✓ PDF downloaded successfully! Upload it to ChatGPT to enable visual analysis.'
         );
       } catch (downloadError) {
@@ -1652,49 +1652,49 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
   const handleExportCombinedPDF = async (block: TrainingBlock) => {
     const blockId = block.courses[0]?.id;
     if (!blockId) return;
-    
+
     // Get the block title from the block name
     const blockTitle = block.name || 'Combined Training';
-    
+
     setGeneratingPDF(`block-${blockId}`);
     setPdfProgress({ progress: 0, status: 'Starting combined PDF generation...', title: blockTitle });
-    
+
     // Use setTimeout to prevent UI blocking
     await new Promise(resolve => setTimeout(resolve, 0));
-    
+
     try {
       // Sort display items by module number
       const sortedItems = [...block.displayItems].sort((a, b) => a.moduleNumber - b.moduleNumber);
-      
+
       // Collect modules data for merged PDF generation
       const modules: PdfModuleData[] = [];
-      
+
       const totalModules = sortedItems.length;
-      
+
       // Detect single-module course (data is on courses table, not course_modules)
       const isSingleModuleCourse = sortedItems.length === 1 && !sortedItems[0].isModule;
-      
+
       for (let i = 0; i < sortedItems.length; i++) {
         const item = sortedItems[i];
-        setPdfProgress(prev => ({ 
+        setPdfProgress(prev => ({
           ...prev,
-          progress: ((i + 1) / (totalModules * 2)) * 30, 
-          status: `Fetching ${isSingleModuleCourse ? 'course' : 'module'} ${i + 1} of ${totalModules}...` 
+          progress: ((i + 1) / (totalModules * 2)) * 30,
+          status: `Fetching ${isSingleModuleCourse ? 'course' : 'module'} ${i + 1} of ${totalModules}...`
         }));
-        
+
         let moduleData: any = null;
-        
+
         if (isSingleModuleCourse) {
           // Single-module course: fetch from get-public-course (data is on courses table)
           const { data: response, error } = await supabase.functions.invoke('get-public-course', {
             body: { courseId: item.id },
           });
-          
+
           if (error) {
             console.error(`Failed to fetch course ${item.id}:`, error);
             continue;
           }
-          
+
           // Map course data to module data format
           const courseData = response?.course;
           if (courseData) {
@@ -1707,6 +1707,10 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
               frame_urls: courseData.frame_urls,
               audio_events: courseData.audio_events,
               prosody_annotations: courseData.prosody_annotations,
+              key_moments_index: courseData.key_moments_index,
+              concepts_frameworks: courseData.concepts_frameworks,
+              hidden_patterns: courseData.hidden_patterns,
+              implementation_steps: courseData.implementation_steps,
             };
           }
         } else {
@@ -1714,21 +1718,21 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
           const { data: response, error } = await supabase.functions.invoke('get-module-data', {
             body: { moduleId: item.id },
           });
-          
+
           if (error) {
             console.error(`Failed to fetch module ${item.id}:`, error);
             continue;
           }
-          
+
           moduleData = response?.module;
           if (moduleData) {
             // Ensure moduleNumber is set
             moduleData.moduleNumber = moduleData.moduleNumber || item.moduleNumber;
           }
         }
-        
+
         if (!moduleData) continue;
-        
+
         // Add to modules array for merged PDF
         modules.push({
           id: moduleData.id,
@@ -1739,9 +1743,13 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
           frame_urls: moduleData.frame_urls,
           audio_events: moduleData.audio_events,
           prosody_annotations: moduleData.prosody_annotations,
+          key_moments_index: moduleData.key_moments_index,
+          concepts_frameworks: moduleData.concepts_frameworks,
+          hidden_patterns: moduleData.hidden_patterns,
+          implementation_steps: moduleData.implementation_steps,
         });
       }
-      
+
       // Check if we have any data
       const hasFrames = modules.some(m => m.frame_urls && m.frame_urls.length > 0);
       const hasTranscripts = modules.some(m => m.transcript && m.transcript.length > 0);
@@ -1749,43 +1757,43 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
         toast.error('No data available. Please wait for processing to complete.');
         return;
       }
-      
+
       // ========== FETCH SUPPLEMENTAL FILE CONTENTS (PARALLEL) ==========
       // This embeds user-uploaded documents (templates, scripts, guides) into the PDF
       // Using parallel loading with concurrency limit for better performance
-      
+
       const courseFiles = block.courseFiles || [];
       let supplementalFiles: { name: string; content: string; size?: number }[] = [];
       let fileLoadFailures: string[] = [];
-      
+
       if (courseFiles.length > 0) {
-        setPdfProgress(prev => ({ 
+        setPdfProgress(prev => ({
           ...prev,
-          progress: 32, 
-          status: `Loading ${courseFiles.length} supplemental document(s) in parallel...` 
+          progress: 32,
+          status: `Loading ${courseFiles.length} supplemental document(s) in parallel...`
         }));
-        
+
         // Use parallel loader with progress tracking and higher concurrency for large file sets
         const concurrency = courseFiles.length > 100 ? 15 : courseFiles.length > 50 ? 10 : 8;
         console.log(`[CombinedPDF] Loading ${courseFiles.length} files with concurrency ${concurrency}`);
-        
+
         const loadedFiles = await loadFilesInParallel(
           courseFiles,
           (progress) => {
             const percentComplete = (progress.loaded / progress.total) * 100;
             // Allocate more progress range for large file sets (32% to 50%)
             const progressValue = 32 + (percentComplete / 100) * 18;
-            
+
             let statusText = `Loading ${progress.loaded}/${progress.total} files`;
             if (progress.failed > 0) {
               statusText += ` (${progress.failed} skipped)`;
             }
-            
+
             setPdfProgress(prev => ({ ...prev, progress: progressValue, status: statusText }));
           },
           concurrency
         );
-        
+
         // Process results
         supplementalFiles = loadedFiles
           .filter(f => f.content && f.content.trim().length > 0)
@@ -1794,19 +1802,19 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
             content: f.content,
             size: f.size,
           }));
-        
+
         fileLoadFailures = loadedFiles.filter(f => !f.success).map(f => f.name);
-        
+
         const successCount = loadedFiles.filter(f => f.success).length;
         console.log(`Loaded ${successCount}/${courseFiles.length} supplemental files for PDF embedding`);
-        
+
         if (fileLoadFailures.length > 0) {
           console.warn(`Failed to load ${fileLoadFailures.length} files:`, fileLoadFailures.slice(0, 10));
         }
       }
-      
+
       setPdfProgress(prev => ({ ...prev, progress: 50, status: 'Building merged PDF with chapters...' }));
-      
+
       // Generate merged course PDF with proper chapter structure and TOC
       let pdfBlob: Blob;
       try {
@@ -1818,9 +1826,9 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
           userEmail: user?.email,
           supplementalFiles: supplementalFiles.length > 0 ? supplementalFiles : undefined,
         };
-        
+
         console.log(`[CombinedPDF] Generating merged PDF with ${modules.length} chapters, ${supplementalFiles.length} supplemental files`);
-        
+
         pdfBlob = await generateMergedCoursePDF(
           mergedCourseData,
           (progress, status) => {
@@ -1834,25 +1842,25 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
         console.error('PDF generation failed:', pdfError);
         throw new Error('PDF generation failed. Please try again.');
       }
-      
+
       // Trigger download
       try {
         const filename = `${block.name} - OneDuo.pdf`;
         downloadPDF(pdfBlob, filename);
-        
+
         // Clear the pdf_revision_pending flag after successful download
         if (block.courses[0]?.pdf_revision_pending) {
           await supabase
             .from('courses')
             .update({ pdf_revision_pending: false })
             .eq('id', blockId);
-          
+
           // Update local state to remove the "Updated" badge immediately
-          setCourses(prev => prev.map(c => 
+          setCourses(prev => prev.map(c =>
             c.id === blockId ? { ...c, pdf_revision_pending: false } : c
           ));
         }
-        
+
         // Enhanced success message with detailed summary
         let supplementalNote = '';
         if (courseFiles.length > 0) {
@@ -1864,9 +1872,9 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
             supplementalNote = ` ${successCount}/${courseFiles.length} supplemental files embedded (${failCount} failed).`;
           }
         }
-        
+
         toast.success(`✓ Combined PDF downloaded! All ${totalModules} modules merged.${supplementalNote}`);
-        
+
         // Show warning if files failed
         if (fileLoadFailures.length > 0 && fileLoadFailures.length <= 5) {
           toast.warning(`${fileLoadFailures.length} file(s) could not be loaded: ${fileLoadFailures.slice(0, 3).join(', ')}${fileLoadFailures.length > 3 ? '...' : ''}`);
@@ -2005,9 +2013,9 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-white/50 hidden sm:block">{email}</span>
-            <Button 
-              variant="ghost" 
-              size="sm" 
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => apiKeysRef.current?.scrollIntoView({ behavior: 'smooth' })}
               className="text-white/60 hover:text-white hover:bg-white/[0.06] gap-1.5"
             >
@@ -2017,8 +2025,8 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
             <Button variant="ghost" size="sm" onClick={handleLogout} className="text-white/60 hover:text-white hover:bg-white/[0.06]">
               Switch Account
             </Button>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               size="icon"
               onClick={handleRefresh}
               disabled={isRefreshing}
@@ -2127,7 +2135,7 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
             <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
           </div>
         ) : courses.length === 0 ? (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="text-center py-16 rounded-2xl bg-white/[0.02] border border-white/[0.08]"
@@ -2197,7 +2205,7 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel className="border-white/10 text-white hover:bg-white/5">Cancel</AlertDialogCancel>
-                        <AlertDialogAction 
+                        <AlertDialogAction
                           onClick={handleBulkDelete}
                           className="bg-red-500 hover:bg-red-600 text-white"
                         >
@@ -2232,686 +2240,678 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
                 {/* Stats Summary */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                   <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
-                <p className="text-sm text-white/50 mb-1">Training Blocks</p>
-                <p className="text-2xl font-semibold text-white">{trainingBlocks.length}</p>
-              </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
-                <p className="text-sm text-white/50 mb-1">Total Modules</p>
-                <p className="text-2xl font-semibold text-emerald-400">
-                  {trainingBlocks.reduce((sum, b) => sum + b.completedModules, 0)}
-                  <span className="text-white/40 text-lg">/{trainingBlocks.reduce((sum, b) => sum + b.totalModules, 0)}</span>
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
-                <p className="text-sm text-white/50 mb-1">Processing</p>
-                <p className="text-2xl font-semibold text-cyan-400">
-                  {trainingBlocks.reduce((sum, b) => sum + b.processingModules, 0)}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
-                <p className="text-sm text-white/50 mb-1">Queued</p>
-                <p className="text-2xl font-semibold text-white/60">
-                  {trainingBlocks.reduce((sum, b) => sum + b.queuedModules, 0)}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
-                <p className="text-sm text-white/50 mb-1">Needs Attention</p>
-                <p className="text-2xl font-semibold text-red-400">
-                  {trainingBlocks.reduce((sum, b) => sum + b.failedModules, 0)}
-                </p>
-              </div>
-            </div>
+                    <p className="text-sm text-white/50 mb-1">Training Blocks</p>
+                    <p className="text-2xl font-semibold text-white">{trainingBlocks.length}</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                    <p className="text-sm text-white/50 mb-1">Total Modules</p>
+                    <p className="text-2xl font-semibold text-emerald-400">
+                      {trainingBlocks.reduce((sum, b) => sum + b.completedModules, 0)}
+                      <span className="text-white/40 text-lg">/{trainingBlocks.reduce((sum, b) => sum + b.totalModules, 0)}</span>
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                    <p className="text-sm text-white/50 mb-1">Processing</p>
+                    <p className="text-2xl font-semibold text-cyan-400">
+                      {trainingBlocks.reduce((sum, b) => sum + b.processingModules, 0)}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                    <p className="text-sm text-white/50 mb-1">Queued</p>
+                    <p className="text-2xl font-semibold text-white/60">
+                      {trainingBlocks.reduce((sum, b) => sum + b.queuedModules, 0)}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.08]">
+                    <p className="text-sm text-white/50 mb-1">Needs Attention</p>
+                    <p className="text-2xl font-semibold text-red-400">
+                      {trainingBlocks.reduce((sum, b) => sum + b.failedModules, 0)}
+                    </p>
+                  </div>
+                </div>
 
-            {/* Training Blocks */}
-            <div className="space-y-4">
-              <AnimatePresence>
-                {trainingBlocks.map((block, blockIdx) => {
-                  const isExpanded = expandedBlocks.has(block.name);
-                  const hasProcessing = block.processingModules > 0;
-                  const hasFailed = block.failedModules > 0;
-                  const allCompleted = block.completedModules === block.totalModules;
+                {/* Training Blocks */}
+                <div className="space-y-4">
+                  <AnimatePresence>
+                    {trainingBlocks.map((block, blockIdx) => {
+                      const isExpanded = expandedBlocks.has(block.name);
+                      const hasProcessing = block.processingModules > 0;
+                      const hasFailed = block.failedModules > 0;
+                      const allCompleted = block.completedModules === block.totalModules;
 
-                  return (
-                    <motion.div
-                      key={block.name}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: blockIdx * 0.05 }}
-                      className="rounded-2xl bg-white/[0.02] border border-white/[0.08] overflow-hidden"
-                    >
-                      {/* Block Header */}
-                      <div
-                        className={`w-full px-6 py-4 flex items-center justify-between hover:bg-white/[0.02] transition-colors ${
-                          hasProcessing ? 'bg-cyan-500/5' : hasFailed ? 'bg-red-500/5' : ''
-                        }`}
-                      >
-                        <div className="flex items-center gap-4 flex-1 min-w-0">
-                          {/* Checkbox for bulk selection */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              // Toggle selection for all courses in this block
-                              const blockCourseIds = block.courses.map(c => c.id);
-                              const allSelected = blockCourseIds.every(id => selectedCourses.has(id));
-                              setSelectedCourses(prev => {
-                                const next = new Set(prev);
-                                if (allSelected) {
-                                  blockCourseIds.forEach(id => next.delete(id));
-                                } else {
-                                  blockCourseIds.forEach(id => next.add(id));
-                                }
-                                return next;
-                              });
-                            }}
-                            className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                              block.courses.every(c => selectedCourses.has(c.id))
-                                ? 'bg-cyan-500 border-cyan-500'
-                                : block.courses.some(c => selectedCourses.has(c.id))
-                                ? 'bg-cyan-500/50 border-cyan-500'
-                                : 'border-white/20 hover:border-white/40'
-                            }`}
+                      return (
+                        <motion.div
+                          key={block.name}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: blockIdx * 0.05 }}
+                          className="rounded-2xl bg-white/[0.02] border border-white/[0.08] overflow-hidden"
+                        >
+                          {/* Block Header */}
+                          <div
+                            className={`w-full px-6 py-4 flex items-center justify-between hover:bg-white/[0.02] transition-colors ${hasProcessing ? 'bg-cyan-500/5' : hasFailed ? 'bg-red-500/5' : ''
+                              }`}
                           >
-                            {block.courses.every(c => selectedCourses.has(c.id)) && (
-                              <Check className="w-3 h-3 text-black" />
-                            )}
-                            {block.courses.some(c => selectedCourses.has(c.id)) && !block.courses.every(c => selectedCourses.has(c.id)) && (
-                              <div className="w-2 h-0.5 bg-black rounded" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => toggleBlock(block.name)}
-                            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                              allCompleted ? 'bg-emerald-500/20' : hasProcessing ? 'bg-cyan-500/20' : hasFailed ? 'bg-red-500/20' : 'bg-white/10'
-                            }`}
-                          >
-                            <Layers className={`w-5 h-5 ${
-                              allCompleted ? 'text-emerald-400' : hasProcessing ? 'text-cyan-400' : hasFailed ? 'text-red-400' : 'text-white/60'
-                            }`} />
-                          </button>
-                          <div className="text-left flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              {editingBlockName === block.name ? (
-                                <form
-                                  onSubmit={(e) => {
-                                    e.preventDefault();
-                                    handleSaveBlockName(block.name, editingBlockValue, block.courses.map(c => c.id));
-                                  }}
-                                  className="flex items-center gap-2 flex-1"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <Input
-                                    autoFocus
-                                    value={editingBlockValue}
-                                    onChange={(e) => setEditingBlockValue(e.target.value)}
-                                    onBlur={(e) => {
-                                      // Only save on blur if not triggered by Enter key (which handles its own save)
-                                      // Check if the related target is within the form (e.g., save button) to avoid double-save
-                                      const form = e.currentTarget.closest('form');
-                                      if (form && !form.contains(e.relatedTarget as Node)) {
-                                        handleSaveBlockName(block.name, editingBlockValue, block.courses.map(c => c.id));
-                                      } else if (!e.relatedTarget) {
-                                        // Clicked outside entirely
-                                        handleSaveBlockName(block.name, editingBlockValue, block.courses.map(c => c.id));
-                                      }
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Escape') {
+                            <div className="flex items-center gap-4 flex-1 min-w-0">
+                              {/* Checkbox for bulk selection */}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // Toggle selection for all courses in this block
+                                  const blockCourseIds = block.courses.map(c => c.id);
+                                  const allSelected = blockCourseIds.every(id => selectedCourses.has(id));
+                                  setSelectedCourses(prev => {
+                                    const next = new Set(prev);
+                                    if (allSelected) {
+                                      blockCourseIds.forEach(id => next.delete(id));
+                                    } else {
+                                      blockCourseIds.forEach(id => next.add(id));
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${block.courses.every(c => selectedCourses.has(c.id))
+                                    ? 'bg-cyan-500 border-cyan-500'
+                                    : block.courses.some(c => selectedCourses.has(c.id))
+                                      ? 'bg-cyan-500/50 border-cyan-500'
+                                      : 'border-white/20 hover:border-white/40'
+                                  }`}
+                              >
+                                {block.courses.every(c => selectedCourses.has(c.id)) && (
+                                  <Check className="w-3 h-3 text-black" />
+                                )}
+                                {block.courses.some(c => selectedCourses.has(c.id)) && !block.courses.every(c => selectedCourses.has(c.id)) && (
+                                  <div className="w-2 h-0.5 bg-black rounded" />
+                                )}
+                              </button>
+                              <button
+                                onClick={() => toggleBlock(block.name)}
+                                className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${allCompleted ? 'bg-emerald-500/20' : hasProcessing ? 'bg-cyan-500/20' : hasFailed ? 'bg-red-500/20' : 'bg-white/10'
+                                  }`}
+                              >
+                                <Layers className={`w-5 h-5 ${allCompleted ? 'text-emerald-400' : hasProcessing ? 'text-cyan-400' : hasFailed ? 'text-red-400' : 'text-white/60'
+                                  }`} />
+                              </button>
+                              <div className="text-left flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  {editingBlockName === block.name ? (
+                                    <form
+                                      onSubmit={(e) => {
                                         e.preventDefault();
-                                        setEditingBlockName(null);
-                                        setEditingBlockValue('');
-                                      } else if (e.key === 'Enter') {
-                                        e.preventDefault();
-                                        e.currentTarget.blur(); // Blur first to prevent onBlur from running after
                                         handleSaveBlockName(block.name, editingBlockValue, block.courses.map(c => c.id));
-                                      }
+                                      }}
+                                      className="flex items-center gap-2 flex-1"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <Input
+                                        autoFocus
+                                        value={editingBlockValue}
+                                        onChange={(e) => setEditingBlockValue(e.target.value)}
+                                        onBlur={(e) => {
+                                          // Only save on blur if not triggered by Enter key (which handles its own save)
+                                          // Check if the related target is within the form (e.g., save button) to avoid double-save
+                                          const form = e.currentTarget.closest('form');
+                                          if (form && !form.contains(e.relatedTarget as Node)) {
+                                            handleSaveBlockName(block.name, editingBlockValue, block.courses.map(c => c.id));
+                                          } else if (!e.relatedTarget) {
+                                            // Clicked outside entirely
+                                            handleSaveBlockName(block.name, editingBlockValue, block.courses.map(c => c.id));
+                                          }
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Escape') {
+                                            e.preventDefault();
+                                            setEditingBlockName(null);
+                                            setEditingBlockValue('');
+                                          } else if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            e.currentTarget.blur(); // Blur first to prevent onBlur from running after
+                                            handleSaveBlockName(block.name, editingBlockValue, block.courses.map(c => c.id));
+                                          }
+                                        }}
+                                        className="h-8 text-lg font-semibold bg-white/10 border-white/20 text-white max-w-md"
+                                        disabled={isSavingBlockName}
+                                      />
+                                      {isSavingBlockName && <Loader2 className="w-4 h-4 animate-spin text-white/50" />}
+                                    </form>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingBlockName(block.name);
+                                        setEditingBlockValue(block.name);
+                                      }}
+                                      className="group flex items-center gap-2 hover:bg-white/5 rounded-lg px-2 py-1 -mx-2 transition-colors"
+                                      title="Click to rename"
+                                    >
+                                      <h3 className="font-semibold text-white text-lg truncate">{block.name}</h3>
+                                      <Pencil className="w-3.5 h-3.5 text-white/30 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                                    </button>
+                                  )}
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide shrink-0 ${block.fpsTarget >= 3
+                                      ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                                      : 'bg-white/10 text-white/50 border border-white/10'
+                                    }`}>
+                                    {block.fpsTarget} FPS
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-3 mt-0.5">
+                                  <span className="text-sm text-white/50">
+                                    {block.completedModules}/{block.totalModules} modules ready
+                                  </span>
+                                  {hasProcessing && (
+                                    <span className="flex items-center gap-1 text-xs text-cyan-400">
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      {block.processingModules} processing
+                                    </span>
+                                  )}
+                                  {hasFailed && (
+                                    <span className="flex items-center gap-1 text-xs text-red-400">
+                                      <AlertTriangle className="w-3 h-3" />
+                                      {block.failedModules} failed
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              {/* Actions - Only show when ALL modules completed */}
+                              {block.allCompleted && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleExportCombinedPDF(block);
                                     }}
-                                    className="h-8 text-lg font-semibold bg-white/10 border-white/20 text-white max-w-md"
-                                    disabled={isSavingBlockName}
-                                  />
-                                  {isSavingBlockName && <Loader2 className="w-4 h-4 animate-spin text-white/50" />}
-                                </form>
-                              ) : (
-                                <button
+                                    disabled={generatingPDF === `block-${block.courses[0]?.id}`}
+                                    className={`relative w-9 h-9 p-0 text-white ${block.courses[0]?.pdf_revision_pending
+                                        ? 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700'
+                                        : 'bg-gradient-to-r from-[#DC2626] to-[#B91C1C] hover:from-[#B91C1C] hover:to-[#991B1B]'
+                                      }`}
+                                    title={block.courses[0]?.pdf_revision_pending ? 'Download Updated OneDuo' : 'Download OneDuo'}
+                                  >
+                                    {generatingPDF === `block-${block.courses[0]?.id}` ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <>
+                                        <Download className="w-4 h-4" />
+                                        {block.courses[0]?.pdf_revision_pending && (
+                                          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-400 rounded-full animate-pulse" />
+                                        )}
+                                      </>
+                                    )}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleCopyAILink(block.courses[0].id);
+                                    }}
+                                    className="gap-1.5 border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/10"
+                                    disabled={!block.courses[0]?.share_enabled}
+                                    title={block.courses[0]?.share_enabled ? 'Copy AI link' : 'Enable sharing first'}
+                                  >
+                                    <Link2 className="w-3.5 h-3.5" />
+                                    AI Link
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleToggleSharing(block.courses[0].id, block.courses[0]?.share_enabled ?? false);
+                                    }}
+                                    disabled={togglingShare === block.courses[0].id}
+                                    className={`gap-1.5 ${block.courses[0]?.share_enabled
+                                        ? 'border-green-500/30 text-green-400 hover:bg-green-500/10'
+                                        : 'border-white/20 text-white/50 hover:bg-white/10'
+                                      }`}
+                                    title={block.courses[0]?.share_enabled ? 'Public sharing is ON' : 'Public sharing is OFF'}
+                                  >
+                                    {togglingShare === block.courses[0].id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : block.courses[0]?.share_enabled ? (
+                                      <Globe className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <Lock className="w-3.5 h-3.5" />
+                                    )}
+                                    {block.courses[0]?.share_enabled ? 'Public' : 'Private'}
+                                  </Button>
+                                </>
+                              )}
+                              {isExpanded && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    setEditingBlockName(block.name);
-                                    setEditingBlockValue(block.name);
+                                    toggleSelectAll(block.displayItems);
                                   }}
-                                  className="group flex items-center gap-2 hover:bg-white/5 rounded-lg px-2 py-1 -mx-2 transition-colors"
-                                  title="Click to rename"
+                                  className="text-white/50 hover:text-white text-xs"
                                 >
-                                  <h3 className="font-semibold text-white text-lg truncate">{block.name}</h3>
-                                  <Pencil className="w-3.5 h-3.5 text-white/30 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                                </button>
+                                  {block.displayItems.every((i) => selectedCourses.has(i.id)) ? 'Deselect All' : 'Select All'}
+                                </Button>
                               )}
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide shrink-0 ${
-                                block.fpsTarget >= 3 
-                                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' 
-                                  : 'bg-white/10 text-white/50 border border-white/10'
-                              }`}>
-                                {block.fpsTarget} FPS
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-3 mt-0.5">
-                              <span className="text-sm text-white/50">
-                                {block.completedModules}/{block.totalModules} modules ready
-                              </span>
-                              {hasProcessing && (
-                                <span className="flex items-center gap-1 text-xs text-cyan-400">
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                  {block.processingModules} processing
-                                </span>
-                              )}
-                              {hasFailed && (
-                                <span className="flex items-center gap-1 text-xs text-red-400">
-                                  <AlertTriangle className="w-3 h-3" />
-                                  {block.failedModules} failed
-                                </span>
-                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setAddFilesDialog({
+                                    open: true,
+                                    courseId: block.courses[0].id,
+                                    courseTitle: block.name,
+                                    existingFiles: block.courseFiles || []
+                                  });
+                                }}
+                                className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 gap-1"
+                              >
+                                <Paperclip className="w-4 h-4" />
+                                Add Files
+                              </Button>
+                              <button onClick={() => toggleBlock(block.name)}>
+                                {isExpanded ? (
+                                  <ChevronDown className="w-5 h-5 text-white/40" />
+                                ) : (
+                                  <ChevronRight className="w-5 h-5 text-white/40" />
+                                )}
+                              </button>
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          {/* Actions - Only show when ALL modules completed */}
-                          {block.allCompleted && (
-                            <>
-                              <Button 
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleExportCombinedPDF(block);
-                                }}
-                                disabled={generatingPDF === `block-${block.courses[0]?.id}`}
-                                className={`relative w-9 h-9 p-0 text-white ${
-                                  block.courses[0]?.pdf_revision_pending
-                                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700'
-                                    : 'bg-gradient-to-r from-[#DC2626] to-[#B91C1C] hover:from-[#B91C1C] hover:to-[#991B1B]'
-                                }`}
-                                title={block.courses[0]?.pdf_revision_pending ? 'Download Updated OneDuo' : 'Download OneDuo'}
+
+                          {/* Expanded Modules */}
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden"
                               >
-                                {generatingPDF === `block-${block.courses[0]?.id}` ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <Download className="w-4 h-4" />
-                                    {block.courses[0]?.pdf_revision_pending && (
-                                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-blue-400 rounded-full animate-pulse" />
-                                    )}
-                                  </>
-                                )}
-                              </Button>
-                              <Button 
-                                size="sm"
-                                variant="outline"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleCopyAILink(block.courses[0].id);
-                                }}
-                                className="gap-1.5 border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/10"
-                                disabled={!block.courses[0]?.share_enabled}
-                                title={block.courses[0]?.share_enabled ? 'Copy AI link' : 'Enable sharing first'}
-                              >
-                                <Link2 className="w-3.5 h-3.5" />
-                                AI Link
-                              </Button>
-                              <Button 
-                                size="sm"
-                                variant="outline"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleToggleSharing(block.courses[0].id, block.courses[0]?.share_enabled ?? false);
-                                }}
-                                disabled={togglingShare === block.courses[0].id}
-                                className={`gap-1.5 ${
-                                  block.courses[0]?.share_enabled 
-                                    ? 'border-green-500/30 text-green-400 hover:bg-green-500/10' 
-                                    : 'border-white/20 text-white/50 hover:bg-white/10'
-                                }`}
-                                title={block.courses[0]?.share_enabled ? 'Public sharing is ON' : 'Public sharing is OFF'}
-                              >
-                                {togglingShare === block.courses[0].id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : block.courses[0]?.share_enabled ? (
-                                  <Globe className="w-3.5 h-3.5" />
-                                ) : (
-                                  <Lock className="w-3.5 h-3.5" />
-                                )}
-                                {block.courses[0]?.share_enabled ? 'Public' : 'Private'}
-                              </Button>
-                            </>
-                          )}
-                          {isExpanded && (
-                            <Button 
-                              variant="ghost"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleSelectAll(block.displayItems);
-                              }}
-                              className="text-white/50 hover:text-white text-xs"
-                            >
-                              {block.displayItems.every((i) => selectedCourses.has(i.id)) ? 'Deselect All' : 'Select All'}
-                            </Button>
-                          )}
-                          <Button 
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAddFilesDialog({
-                                open: true,
-                                courseId: block.courses[0].id,
-                                courseTitle: block.name,
-                                existingFiles: block.courseFiles || []
-                              });
-                            }}
-                            className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 gap-1"
-                          >
-                            <Paperclip className="w-4 h-4" />
-                            Add Files
-                          </Button>
-                          <button onClick={() => toggleBlock(block.name)}>
-                            {isExpanded ? (
-                              <ChevronDown className="w-5 h-5 text-white/40" />
-                            ) : (
-                              <ChevronRight className="w-5 h-5 text-white/40" />
-                            )}
-                          </button>
-                        </div>
-                      </div>
+                                <div className="border-t border-white/[0.06] divide-y divide-white/[0.06]">
+                                  {block.displayItems.map((item) => {
+                                    // Check if item is stalled
+                                    const itemIsStalled = isItemStalled(item);
+                                    // Use stalled status config if stalled, otherwise normal
+                                    const effectiveStatus = itemIsStalled ? 'stalled' : item.status;
+                                    const config = statusConfig[effectiveStatus] || statusConfig.queued;
+                                    const StatusIcon = config.icon;
+                                    const isProcessing = !['completed', 'failed', 'queued', 'pending'].includes(item.status) && !itemIsStalled;
+                                    const isQueued = item.status === 'queued' || item.status === 'pending';
+                                    const isRetrying = retryingCourses.has(item.id);
+                                    const errorAnalysis = (item.status === 'failed' || item.status === 'manual_review')
+                                      ? analyzeError(item.error_message, undefined, item.status)
+                                      : null;
+                                    const isManualReview = item.status === 'manual_review';
+                                    // Find the parent course for actions that need it
+                                    const parentCourse = block.courses.find(c => c.id === item.parentCourseId);
 
-                      {/* Expanded Modules */}
-                      <AnimatePresence>
-                        {isExpanded && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.2 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="border-t border-white/[0.06] divide-y divide-white/[0.06]">
-                              {block.displayItems.map((item) => {
-                                // Check if item is stalled
-                                const itemIsStalled = isItemStalled(item);
-                                // Use stalled status config if stalled, otherwise normal
-                                const effectiveStatus = itemIsStalled ? 'stalled' : item.status;
-                                const config = statusConfig[effectiveStatus] || statusConfig.queued;
-                                const StatusIcon = config.icon;
-                                const isProcessing = !['completed', 'failed', 'queued', 'pending'].includes(item.status) && !itemIsStalled;
-                                const isQueued = item.status === 'queued' || item.status === 'pending';
-                                const isRetrying = retryingCourses.has(item.id);
-                                const errorAnalysis = (item.status === 'failed' || item.status === 'manual_review') 
-                                  ? analyzeError(item.error_message, undefined, item.status) 
-                                  : null;
-                                const isManualReview = item.status === 'manual_review';
-                                // Find the parent course for actions that need it
-                                const parentCourse = block.courses.find(c => c.id === item.parentCourseId);
-
-                                return (
-                                  <div key={item.id} className="px-6 py-4 group hover:bg-white/[0.01]">
-                                    <div className="flex items-start gap-4">
-                                      {/* Checkbox for bulk selection */}
-                                      <button
-                                        onClick={() => toggleCourseSelection(item.id)}
-                                        className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${
-                                          selectedCourses.has(item.id)
-                                            ? 'bg-cyan-500 border-cyan-500'
-                                            : 'border-white/20 hover:border-white/40'
-                                        }`}
-                                      >
-                                        {selectedCourses.has(item.id) && (
-                                          <CheckCircle className="w-3 h-3 text-black" />
-                                        )}
-                                      </button>
-
-                                      {/* Module Number Badge */}
-                                      <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${config.bgColor} ${config.color}`}>
-                                        {item.moduleNumber}
-                                      </div>
-
-                                      {/* Module Content */}
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between gap-2 mb-1">
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            {/* Module title */}
-                                            <span className="font-medium text-white">{item.title}</span>
-                                            <StatusIcon className={`w-4 h-4 ${config.color} ${isProcessing ? 'animate-spin' : ''}`} />
-                                            <span className={`text-xs ${config.color}`}>{config.label}</span>
-                                            {item.video_duration_seconds && (
-                                              <span className="text-xs text-white/40">• {formatDuration(item.video_duration_seconds)}</span>
+                                    return (
+                                      <div key={item.id} className="px-6 py-4 group hover:bg-white/[0.01]">
+                                        <div className="flex items-start gap-4">
+                                          {/* Checkbox for bulk selection */}
+                                          <button
+                                            onClick={() => toggleCourseSelection(item.id)}
+                                            className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${selectedCourses.has(item.id)
+                                                ? 'bg-cyan-500 border-cyan-500'
+                                                : 'border-white/20 hover:border-white/40'
+                                              }`}
+                                          >
+                                            {selectedCourses.has(item.id) && (
+                                              <CheckCircle className="w-3 h-3 text-black" />
                                             )}
-                                            {item.status === 'completed' && (
-                                              <DownloadCountBadge courseId={item.parentCourseId} />
-                                            )}
+                                          </button>
+
+                                          {/* Module Number Badge */}
+                                          <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold ${config.bgColor} ${config.color}`}>
+                                            {item.moduleNumber}
                                           </div>
-                                          <div className="flex items-center gap-2">
-                                            {/* Delete Button - Always visible with subtle styling */}
-                                            <AlertDialog>
-                                              <AlertDialogTrigger asChild>
-                                                <button
-                                                  className="p-1.5 rounded-lg hover:bg-red-500/20 text-white/30 hover:text-red-400 transition-colors"
-                                                  disabled={deletingCourse === item.id}
-                                                  onClick={(e) => {
-                                                    console.log('[Dashboard] Delete button clicked for:', item.id, item.title);
-                                                  }}
-                                                >
-                                                  {deletingCourse === item.id ? (
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                  ) : (
-                                                    <X className="w-4 h-4" />
-                                                  )}
-                                                </button>
-                                              </AlertDialogTrigger>
-                                              <AlertDialogContent className="bg-[#0a0a0a] border-white/10">
-                                                <AlertDialogHeader>
-                                                  <AlertDialogTitle className="text-white">Delete {item.title}?</AlertDialogTitle>
-                                                  <AlertDialogDescription className="text-white/60">
-                                                    This will permanently delete this module and all associated data. This action cannot be undone.
-                                                  </AlertDialogDescription>
-                                                </AlertDialogHeader>
-                                                <AlertDialogFooter>
-                                                  <AlertDialogCancel className="border-white/10 text-white hover:bg-white/5">Cancel</AlertDialogCancel>
-                                                  <AlertDialogAction 
-                                                    onClick={() => {
-                                                      console.log('[Dashboard] Delete confirmed for:', item.id, 'isModule:', item.isModule);
-                                                      return item.isModule ? handleDeleteModule(item.id) : handleDeleteCourse(item.id);
-                                                    }}
-                                                    className="bg-red-500 hover:bg-red-600 text-white"
+
+                                          {/* Module Content */}
+                                          <div className="flex-1 min-w-0">
+                                            <div className="flex items-center justify-between gap-2 mb-1">
+                                              <div className="flex items-center gap-2 flex-wrap">
+                                                {/* Module title */}
+                                                <span className="font-medium text-white">{item.title}</span>
+                                                <StatusIcon className={`w-4 h-4 ${config.color} ${isProcessing ? 'animate-spin' : ''}`} />
+                                                <span className={`text-xs ${config.color}`}>{config.label}</span>
+                                                {item.video_duration_seconds && (
+                                                  <span className="text-xs text-white/40">• {formatDuration(item.video_duration_seconds)}</span>
+                                                )}
+                                                {item.status === 'completed' && (
+                                                  <DownloadCountBadge courseId={item.parentCourseId} />
+                                                )}
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                {/* Delete Button - Always visible with subtle styling */}
+                                                <AlertDialog>
+                                                  <AlertDialogTrigger asChild>
+                                                    <button
+                                                      className="p-1.5 rounded-lg hover:bg-red-500/20 text-white/30 hover:text-red-400 transition-colors"
+                                                      disabled={deletingCourse === item.id}
+                                                      onClick={(e) => {
+                                                        console.log('[Dashboard] Delete button clicked for:', item.id, item.title);
+                                                      }}
+                                                    >
+                                                      {deletingCourse === item.id ? (
+                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                      ) : (
+                                                        <X className="w-4 h-4" />
+                                                      )}
+                                                    </button>
+                                                  </AlertDialogTrigger>
+                                                  <AlertDialogContent className="bg-[#0a0a0a] border-white/10">
+                                                    <AlertDialogHeader>
+                                                      <AlertDialogTitle className="text-white">Delete {item.title}?</AlertDialogTitle>
+                                                      <AlertDialogDescription className="text-white/60">
+                                                        This will permanently delete this module and all associated data. This action cannot be undone.
+                                                      </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                      <AlertDialogCancel className="border-white/10 text-white hover:bg-white/5">Cancel</AlertDialogCancel>
+                                                      <AlertDialogAction
+                                                        onClick={() => {
+                                                          console.log('[Dashboard] Delete confirmed for:', item.id, 'isModule:', item.isModule);
+                                                          return item.isModule ? handleDeleteModule(item.id) : handleDeleteCourse(item.id);
+                                                        }}
+                                                        className="bg-red-500 hover:bg-red-600 text-white"
+                                                      >
+                                                        Delete
+                                                      </AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                  </AlertDialogContent>
+                                                </AlertDialog>
+                                              </div>
+                                            </div>
+
+                                            <p className="text-xs text-white/40 mb-2">Added {formatDate(item.created_at)}</p>
+
+                                            {/* Queued State - Enhanced with real progress */}
+                                            {isQueued && (
+                                              <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
+                                                <div className="flex items-center justify-between gap-3 mb-2">
+                                                  <div className="flex items-center gap-2">
+                                                    <motion.div
+                                                      className="w-2.5 h-2.5 rounded-full bg-cyan-400"
+                                                      animate={{
+                                                        scale: [1, 1.3, 1],
+                                                        opacity: [0.6, 1, 0.6]
+                                                      }}
+                                                      transition={{
+                                                        duration: 1.2,
+                                                        repeat: Infinity,
+                                                        ease: 'easeInOut'
+                                                      }}
+                                                    />
+                                                    <span className="text-sm text-cyan-400 font-medium">Processing...</span>
+                                                  </div>
+                                                  <motion.span
+                                                    className="text-xs text-cyan-400/80 font-medium px-2 py-0.5 rounded-full bg-cyan-500/10"
+                                                    animate={{ opacity: [0.7, 1, 0.7] }}
+                                                    transition={{ duration: 2, repeat: Infinity }}
                                                   >
-                                                    Delete
-                                                  </AlertDialogAction>
-                                                </AlertDialogFooter>
-                                              </AlertDialogContent>
-                                            </AlertDialog>
+                                                    Live
+                                                  </motion.span>
+                                                </div>
+
+                                                {/* Progress percentage and ETA */}
+                                                <div className="flex items-baseline justify-between mb-2">
+                                                  <span className="text-2xl font-bold text-white tabular-nums">
+                                                    {(displayProgress[item.id] ?? item.progress).toFixed(1)}%
+                                                  </span>
+                                                  <span className="text-xs text-white/40">
+                                                    {getEstimatedTime(item) || (item.video_duration_seconds ? `~${Math.ceil(item.video_duration_seconds / 60 * 2)} min remaining` : '~2-5 min remaining')}
+                                                  </span>
+                                                </div>
+
+                                                {/* Real progress bar */}
+                                                <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+                                                  <motion.div
+                                                    className="h-full bg-gradient-to-r from-cyan-500 to-cyan-400 rounded-full"
+                                                    initial={{ width: 0 }}
+                                                    animate={{ width: `${Math.max(3, displayProgress[item.id] ?? item.progress)}%` }}
+                                                    transition={{ duration: 0.5, ease: 'easeOut' }}
+                                                  />
+                                                </div>
+
+                                                <p className="text-xs text-white/40 mt-2">Safe to close this page • We'll email you when ready</p>
+                                              </div>
+                                            )}
+
+                                            {/* Processing Progress - Enhanced UI */}
+                                            {isProcessing && parentCourse && (
+                                              <ProcessingProgressCard
+                                                title={item.title}
+                                                progressStep={item.progress_step}
+                                                displayProgress={displayProgress[item.id] ?? item.progress}
+                                                estimatedTimeRemaining={getEstimatedTimeRemaining({
+                                                  ...parentCourse,
+                                                  video_duration_seconds: item.video_duration_seconds,
+                                                  progress: displayProgress[item.id] ?? item.progress,
+                                                })}
+                                                videoDurationSeconds={item.video_duration_seconds}
+                                                syncStatus={getSyncStatus({
+                                                  ...parentCourse,
+                                                  last_heartbeat_at: item.heartbeat_at,
+                                                  status: item.status,
+                                                })}
+                                                isDelayed={Date.now() - new Date(item.created_at).getTime() > 60000 && (displayProgress[item.id] ?? item.progress) < 5}
+                                                onTeamEmailSubmit={(teamEmail) => handleTeamEmailSubmit(item.parentCourseId, teamEmail)}
+                                              />
+                                            )}
+
+                                            {/* Stalled State - module stuck without progress */}
+                                            {itemIsStalled && item.status !== 'failed' && (
+                                              <div className="mb-3 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20">
+                                                <div className="flex items-start gap-2">
+                                                  <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
+                                                  <div className="flex-1">
+                                                    <p className="text-sm text-white/80">Processing appears to be stalled</p>
+                                                    <p className="text-xs text-white/50 mt-1">
+                                                      No activity for 5+ minutes. Try repairing or download partial data if available.
+                                                    </p>
+                                                  </div>
+                                                  <div className="flex gap-2">
+                                                    {/* Salvage/Partial Download Button */}
+                                                    {item.isModule && (
+                                                      <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="shrink-0 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                                                        onClick={() => handleExportModulePDF(item.id, item.title, block.name, true)}
+                                                        disabled={generatingPDF === item.id}
+                                                      >
+                                                        {generatingPDF === item.id ? (
+                                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                          <><Download className="w-4 h-4 mr-1" /> Salvage</>
+                                                        )}
+                                                      </Button>
+                                                    )}
+                                                    {/* Kickstart Button - manual trigger for stuck processing */}
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      className="shrink-0 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
+                                                      onClick={() => handleKickstart(item.parentCourseId)}
+                                                      disabled={kickstartingCourses.has(item.parentCourseId) || isRetrying}
+                                                    >
+                                                      {kickstartingCourses.has(item.parentCourseId) ? (
+                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                      ) : (
+                                                        <><Zap className="w-4 h-4 mr-1" /> Kickstart</>
+                                                      )}
+                                                    </Button>
+                                                    {/* Repair Button */}
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      className="shrink-0 border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+                                                      onClick={() => handleRepairModule(item.id)}
+                                                      disabled={isRetrying}
+                                                    >
+                                                      {isRetrying ? (
+                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                      ) : (
+                                                        <><RefreshCw className="w-4 h-4 mr-1" /> Repair</>
+                                                      )}
+                                                    </Button>
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {/* Manual Review State - Friendly "Special Attention" UI */}
+                                            {isManualReview && (
+                                              <ManualProcessingCard title={item.title} className="mb-3" />
+                                            )}
+
+                                            {/* Failed State (only for actual failures, not manual_review) */}
+                                            {item.status === 'failed' && !isManualReview && errorAnalysis && (
+                                              <div className="mb-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
+                                                <div className="flex items-start gap-2">
+                                                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                                                  <div className="flex-1">
+                                                    <p className="text-sm text-white/80">{errorAnalysis.userMessage}</p>
+                                                    <p className="text-xs text-white/50 mt-1">
+                                                      {errorAnalysis.canAutoFix
+                                                        ? `✨ ${errorAnalysis.fixStrategy}`
+                                                        : errorAnalysis.fixStrategy
+                                                      }
+                                                    </p>
+                                                    {/* Show recovery hint if parent course has recoverable data */}
+                                                    {parentCourse && hasRecoverableData(parentCourse) && (
+                                                      <p className="text-xs text-emerald-400 mt-1">
+                                                        ✓ Data recovered - click Resume to continue
+                                                      </p>
+                                                    )}
+                                                  </div>
+                                                  <div className="flex gap-2 flex-wrap">
+                                                    {/* Salvage Button for Failed Items */}
+                                                    {item.isModule && (
+                                                      <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="shrink-0 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+                                                        onClick={() => handleExportModulePDF(item.id, item.title, block.name, true)}
+                                                        disabled={generatingPDF === item.id}
+                                                      >
+                                                        {generatingPDF === item.id ? (
+                                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                          <><Download className="w-4 h-4 mr-1" /> Salvage</>
+                                                        )}
+                                                      </Button>
+                                                    )}
+                                                    {/* Resume Button - for courses with recoverable data (race condition fix) */}
+                                                    {parentCourse && hasRecoverableData(parentCourse) && (
+                                                      <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="shrink-0 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+                                                        onClick={() => handleResumeFailed(item.parentCourseId)}
+                                                        disabled={isRetrying}
+                                                      >
+                                                        {isRetrying ? (
+                                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                          <><ArrowRight className="w-4 h-4 mr-1" /> Resume</>
+                                                        )}
+                                                      </Button>
+                                                    )}
+                                                    <Button
+                                                      size="sm"
+                                                      variant="outline"
+                                                      className={`shrink-0 ${errorAnalysis.canAutoFix ? 'border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10' : 'border-white/[0.1] text-white hover:bg-white/[0.06]'}`}
+                                                      onClick={() => item.isModule ? handleRetryModule(item.id, errorAnalysis) : handleRetry(item.id, errorAnalysis)}
+                                                      disabled={isRetrying}
+                                                    >
+                                                      {isRetrying ? (
+                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                      ) : errorAnalysis.canAutoFix ? (
+                                                        <><Zap className="w-4 h-4 mr-1" /> Smart Fix</>
+                                                      ) : (
+                                                        <><RefreshCw className="w-4 h-4 mr-1" /> Retry</>
+                                                      )}
+                                                    </Button>
+                                                    {/* Generate without frames - for courses with transcript but failed frame extraction */}
+                                                    {parentCourse && hasTranscriptOnly(parentCourse) && !item.isModule && (
+                                                      <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="shrink-0 border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                                                        onClick={() => handleExportPDF(parentCourse, item.moduleNumber)}
+                                                        disabled={generatingPDF === item.id}
+                                                        title="Generate PDF using transcript only (no visual frames)"
+                                                      >
+                                                        {generatingPDF === item.id ? (
+                                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                                        ) : (
+                                                          <><FileText className="w-4 h-4 mr-1" /> Transcript Only</>
+                                                        )}
+                                                      </Button>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {/* Completed Actions - Always show minimal UI, download is at block header */}
+                                            {item.status === 'completed' && parentCourse && (
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-xs text-emerald-400 flex items-center gap-1">
+                                                  <CheckCircle className="w-3.5 h-3.5" />
+                                                  Ready
+                                                </span>
+                                                {item.video_duration_seconds && (
+                                                  <span className="text-xs text-white/30">• {formatDuration(item.video_duration_seconds)}</span>
+                                                )}
+                                              </div>
+                                            )}
                                           </div>
                                         </div>
+                                      </div>
+                                    );
+                                  })}
 
-                                        <p className="text-xs text-white/40 mb-2">Added {formatDate(item.created_at)}</p>
-
-                                        {/* Queued State - Enhanced with real progress */}
-                                        {isQueued && (
-                                          <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20">
-                                            <div className="flex items-center justify-between gap-3 mb-2">
-                                              <div className="flex items-center gap-2">
-                                                <motion.div 
-                                                  className="w-2.5 h-2.5 rounded-full bg-cyan-400"
-                                                  animate={{ 
-                                                    scale: [1, 1.3, 1],
-                                                    opacity: [0.6, 1, 0.6]
-                                                  }}
-                                                  transition={{ 
-                                                    duration: 1.2, 
-                                                    repeat: Infinity, 
-                                                    ease: 'easeInOut'
-                                                  }}
-                                                />
-                                                <span className="text-sm text-cyan-400 font-medium">Processing...</span>
-                                              </div>
-                                              <motion.span 
-                                                className="text-xs text-cyan-400/80 font-medium px-2 py-0.5 rounded-full bg-cyan-500/10"
-                                                animate={{ opacity: [0.7, 1, 0.7] }}
-                                                transition={{ duration: 2, repeat: Infinity }}
-                                              >
-                                                Live
-                                              </motion.span>
-                                            </div>
-                                            
-                                            {/* Progress percentage and ETA */}
-                                            <div className="flex items-baseline justify-between mb-2">
-                                            <span className="text-2xl font-bold text-white tabular-nums">
-                                                {(displayProgress[item.id] ?? item.progress).toFixed(1)}%
-                                              </span>
-                                              <span className="text-xs text-white/40">
-                                                {getEstimatedTime(item) || (item.video_duration_seconds ? `~${Math.ceil(item.video_duration_seconds / 60 * 2)} min remaining` : '~2-5 min remaining')}
-                                              </span>
-                                            </div>
-                                            
-                                            {/* Real progress bar */}
-                                            <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-                                              <motion.div
-                                                className="h-full bg-gradient-to-r from-cyan-500 to-cyan-400 rounded-full"
-                                                initial={{ width: 0 }}
-                                                animate={{ width: `${Math.max(3, displayProgress[item.id] ?? item.progress)}%` }}
-                                                transition={{ duration: 0.5, ease: 'easeOut' }}
-                                              />
-                                            </div>
-                                            
-                                            <p className="text-xs text-white/40 mt-2">Safe to close this page • We'll email you when ready</p>
-                                          </div>
-                                        )}
-
-                                        {/* Processing Progress - Enhanced UI */}
-                                        {isProcessing && parentCourse && (
-                                          <ProcessingProgressCard 
-                                            title={item.title}
-                                            progressStep={item.progress_step}
-                                            displayProgress={displayProgress[item.id] ?? item.progress}
-                                            estimatedTimeRemaining={getEstimatedTimeRemaining({
-                                              ...parentCourse,
-                                              video_duration_seconds: item.video_duration_seconds,
-                                              progress: displayProgress[item.id] ?? item.progress,
-                                            })}
-                                            videoDurationSeconds={item.video_duration_seconds}
-                                            syncStatus={getSyncStatus({
-                                              ...parentCourse,
-                                              last_heartbeat_at: item.heartbeat_at,
-                                              status: item.status,
-                                            })}
-                                            isDelayed={Date.now() - new Date(item.created_at).getTime() > 60000 && (displayProgress[item.id] ?? item.progress) < 5}
-                                            onTeamEmailSubmit={(teamEmail) => handleTeamEmailSubmit(item.parentCourseId, teamEmail)}
-                                          />
-                                        )}
-
-                                        {/* Stalled State - module stuck without progress */}
-                                        {itemIsStalled && item.status !== 'failed' && (
-                                          <div className="mb-3 p-3 rounded-xl bg-orange-500/10 border border-orange-500/20">
-                                            <div className="flex items-start gap-2">
-                                              <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
-                                              <div className="flex-1">
-                                                <p className="text-sm text-white/80">Processing appears to be stalled</p>
-                                                <p className="text-xs text-white/50 mt-1">
-                                                  No activity for 5+ minutes. Try repairing or download partial data if available.
-                                                </p>
-                                              </div>
-                                              <div className="flex gap-2">
-                                                {/* Salvage/Partial Download Button */}
-                                                {item.isModule && (
-                                                  <Button 
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="shrink-0 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
-                                                    onClick={() => handleExportModulePDF(item.id, item.title, block.name, true)}
-                                                    disabled={generatingPDF === item.id}
-                                                  >
-                                                    {generatingPDF === item.id ? (
-                                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                                    ) : (
-                                                      <><Download className="w-4 h-4 mr-1" /> Salvage</>
-                                                    )}
-                                                  </Button>
-                                                )}
-                                                {/* Kickstart Button - manual trigger for stuck processing */}
-                                                <Button 
-                                                  size="sm"
-                                                  variant="outline"
-                                                  className="shrink-0 border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10"
-                                                  onClick={() => handleKickstart(item.parentCourseId)}
-                                                  disabled={kickstartingCourses.has(item.parentCourseId) || isRetrying}
-                                                >
-                                                  {kickstartingCourses.has(item.parentCourseId) ? (
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                  ) : (
-                                                    <><Zap className="w-4 h-4 mr-1" /> Kickstart</>
-                                                  )}
-                                                </Button>
-                                                {/* Repair Button */}
-                                                <Button 
-                                                  size="sm"
-                                                  variant="outline"
-                                                  className="shrink-0 border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
-                                                  onClick={() => handleRepairModule(item.id)}
-                                                  disabled={isRetrying}
-                                                >
-                                                  {isRetrying ? (
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                  ) : (
-                                                    <><RefreshCw className="w-4 h-4 mr-1" /> Repair</>
-                                                  )}
-                                                </Button>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        {/* Manual Review State - Friendly "Special Attention" UI */}
-                                        {isManualReview && (
-                                          <ManualProcessingCard title={item.title} className="mb-3" />
-                                        )}
-
-                                        {/* Failed State (only for actual failures, not manual_review) */}
-                                        {item.status === 'failed' && !isManualReview && errorAnalysis && (
-                                          <div className="mb-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
-                                            <div className="flex items-start gap-2">
-                                              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                                              <div className="flex-1">
-                                                <p className="text-sm text-white/80">{errorAnalysis.userMessage}</p>
-                                                <p className="text-xs text-white/50 mt-1">
-                                                  {errorAnalysis.canAutoFix 
-                                                    ? `✨ ${errorAnalysis.fixStrategy}` 
-                                                    : errorAnalysis.fixStrategy
-                                                  }
-                                                </p>
-                                                {/* Show recovery hint if parent course has recoverable data */}
-                                                {parentCourse && hasRecoverableData(parentCourse) && (
-                                                  <p className="text-xs text-emerald-400 mt-1">
-                                                    ✓ Data recovered - click Resume to continue
-                                                  </p>
-                                                )}
-                                              </div>
-                                              <div className="flex gap-2 flex-wrap">
-                                                {/* Salvage Button for Failed Items */}
-                                                {item.isModule && (
-                                                  <Button 
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="shrink-0 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
-                                                    onClick={() => handleExportModulePDF(item.id, item.title, block.name, true)}
-                                                    disabled={generatingPDF === item.id}
-                                                  >
-                                                    {generatingPDF === item.id ? (
-                                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                                    ) : (
-                                                      <><Download className="w-4 h-4 mr-1" /> Salvage</>
-                                                    )}
-                                                  </Button>
-                                                )}
-                                                {/* Resume Button - for courses with recoverable data (race condition fix) */}
-                                                {parentCourse && hasRecoverableData(parentCourse) && (
-                                                  <Button 
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="shrink-0 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
-                                                    onClick={() => handleResumeFailed(item.parentCourseId)}
-                                                    disabled={isRetrying}
-                                                  >
-                                                    {isRetrying ? (
-                                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                                    ) : (
-                                                      <><ArrowRight className="w-4 h-4 mr-1" /> Resume</>
-                                                    )}
-                                                  </Button>
-                                                )}
-                                                <Button 
-                                                  size="sm"
-                                                  variant="outline"
-                                                  className={`shrink-0 ${errorAnalysis.canAutoFix ? 'border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10' : 'border-white/[0.1] text-white hover:bg-white/[0.06]'}`}
-                                                  onClick={() => item.isModule ? handleRetryModule(item.id, errorAnalysis) : handleRetry(item.id, errorAnalysis)}
-                                                  disabled={isRetrying}
-                                                >
-                                                  {isRetrying ? (
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                  ) : errorAnalysis.canAutoFix ? (
-                                                    <><Zap className="w-4 h-4 mr-1" /> Smart Fix</>
-                                                  ) : (
-                                                    <><RefreshCw className="w-4 h-4 mr-1" /> Retry</>
-                                                  )}
-                                                </Button>
-                                                {/* Generate without frames - for courses with transcript but failed frame extraction */}
-                                                {parentCourse && hasTranscriptOnly(parentCourse) && !item.isModule && (
-                                                  <Button 
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="shrink-0 border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
-                                                    onClick={() => handleExportPDF(parentCourse, item.moduleNumber)}
-                                                    disabled={generatingPDF === item.id}
-                                                    title="Generate PDF using transcript only (no visual frames)"
-                                                  >
-                                                    {generatingPDF === item.id ? (
-                                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                                    ) : (
-                                                      <><FileText className="w-4 h-4 mr-1" /> Transcript Only</>
-                                                    )}
-                                                  </Button>
-                                                )}
-                                              </div>
-                                            </div>
-                                          </div>
-                                        )}
-
-                                        {/* Completed Actions - Always show minimal UI, download is at block header */}
-                                        {item.status === 'completed' && parentCourse && (
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-xs text-emerald-400 flex items-center gap-1">
-                                              <CheckCircle className="w-3.5 h-3.5" />
-                                              Ready
-                                            </span>
-                                            {item.video_duration_seconds && (
-                                              <span className="text-xs text-white/30">• {formatDuration(item.video_duration_seconds)}</span>
-                                            )}
-                                          </div>
-                                        )}
+                                  {/* Course Files Section */}
+                                  {block.courseFiles.length > 0 && (
+                                    <div className="px-6 py-4 bg-amber-500/5 border-t border-amber-500/10">
+                                      <div className="flex items-center gap-2 mb-3">
+                                        <Paperclip className="w-4 h-4 text-amber-400" />
+                                        <span className="text-sm font-medium text-amber-400">Course Materials</span>
+                                        <span className="text-xs text-white/40">({block.courseFiles.length} files)</span>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {block.courseFiles.map((file, idx) => (
+                                          <button
+                                            key={idx}
+                                            onClick={() => handleDownloadCourseFile(file)}
+                                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors group"
+                                          >
+                                            <FileText className="w-3.5 h-3.5 text-amber-400" />
+                                            <span className="text-sm text-white/80 group-hover:text-white">{file.name}</span>
+                                            <span className="text-xs text-white/40">{formatFileSize(file.size)}</span>
+                                            <Download className="w-3 h-3 text-amber-400/60 group-hover:text-amber-400" />
+                                          </button>
+                                        ))}
                                       </div>
                                     </div>
-                                  </div>
-                                );
-                              })}
-                              
-                              {/* Course Files Section */}
-                              {block.courseFiles.length > 0 && (
-                                <div className="px-6 py-4 bg-amber-500/5 border-t border-amber-500/10">
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <Paperclip className="w-4 h-4 text-amber-400" />
-                                    <span className="text-sm font-medium text-amber-400">Course Materials</span>
-                                    <span className="text-xs text-white/40">({block.courseFiles.length} files)</span>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {block.courseFiles.map((file, idx) => (
-                                      <button
-                                        key={idx}
-                                        onClick={() => handleDownloadCourseFile(file)}
-                                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors group"
-                                      >
-                                        <FileText className="w-3.5 h-3.5 text-amber-400" />
-                                        <span className="text-sm text-white/80 group-hover:text-white">{file.name}</span>
-                                        <span className="text-xs text-white/40">{formatFileSize(file.size)}</span>
-                                        <Download className="w-3 h-3 text-amber-400/60 group-hover:text-amber-400" />
-                                      </button>
-                                    ))}
-                                  </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-            
-                
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                </div>
+
+
                 {/* API Keys Section */}
                 <div className="mt-12" ref={apiKeysRef}>
                   <ApiKeyManager />
@@ -2931,11 +2931,11 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
           </>
         )}
       </div>
-      
+
       {/* AI Support Chat Widget */}
       {email && <SupportChatWidget userEmail={email} />}
-      
-      
+
+
       {/* Add Files Dialog */}
       {addFilesDialog && (
         <AddFilesDialog

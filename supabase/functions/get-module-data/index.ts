@@ -14,8 +14,8 @@ const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_REQUESTS = 30;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 
-// Limit frame URLs to prevent massive JSON responses (PDF exporter only uses ~100 max)
-const MAX_FRAME_URLS = 300;
+// Limit frame URLs to prevent massive JSON responses (Increased for high-density PDF support)
+const MAX_FRAME_URLS = 15000;
 
 // Helper: sample frames evenly across the array to represent full video duration
 const sampleFramesEvenly = (frames: string[], maxFrames: number): string[] => {
@@ -32,16 +32,16 @@ const sampleFramesEvenly = (frames: string[], maxFrames: number): string[] => {
 function checkRateLimit(identifier: string): { allowed: boolean; remaining: number; resetIn: number } {
   const now = Date.now();
   const record = rateLimitMap.get(identifier);
-  
+
   if (!record || now > record.resetTime) {
     rateLimitMap.set(identifier, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
     return { allowed: true, remaining: RATE_LIMIT_REQUESTS - 1, resetIn: RATE_LIMIT_WINDOW_MS };
   }
-  
+
   if (record.count >= RATE_LIMIT_REQUESTS) {
     return { allowed: false, remaining: 0, resetIn: record.resetTime - now };
   }
-  
+
   record.count++;
   return { allowed: true, remaining: RATE_LIMIT_REQUESTS - record.count, resetIn: record.resetTime - now };
 }
@@ -57,7 +57,7 @@ serve(async (req) => {
     const forwarded = req.headers.get("x-forwarded-for");
     const clientIp = forwarded ? forwarded.split(",")[0].trim() : "unknown";
     const rateLimitKey = `${clientIp}:${sessionId}`;
-    
+
     const rateCheck = checkRateLimit(rateLimitKey);
     if (!rateCheck.allowed) {
       return new Response(
@@ -92,6 +92,13 @@ serve(async (req) => {
         status,
         module_files,
         course_id,
+        transformation_artifact_id,
+        transformation_artifacts(
+          key_moments_index,
+          concepts_frameworks,
+          hidden_patterns,
+          implementation_steps
+        ),
         courses(title, email)
       `);
 
@@ -106,7 +113,7 @@ serve(async (req) => {
     if (error || !module) {
       // Fallback: Check if this is actually a single-module course (data on courses table)
       console.log(`[get-module-data] Module not found, checking if it's a single-module course...`);
-      
+
       const { data: course, error: courseError } = await supabase
         .from("courses")
         .select(`
@@ -118,19 +125,26 @@ serve(async (req) => {
           audio_events,
           prosody_annotations,
           status,
-          course_files
+          course_files,
+          transformation_artifact_id,
+          transformation_artifacts(
+            key_moments_index,
+            concepts_frameworks,
+            hidden_patterns,
+            implementation_steps
+          )
         `)
         .eq("id", moduleId) // moduleId might actually be a course ID
         .single();
-      
+
       if (!courseError && course) {
         // Return course data formatted as module data
         const courseFrameUrls = course.frame_urls || [];
         const totalCourseFrameCount = Array.isArray(courseFrameUrls) ? courseFrameUrls.length : 0;
         const limitedCourseFrameUrls = sampleFramesEvenly(courseFrameUrls, MAX_FRAME_URLS);
-        
+
         console.log(`[get-module-data] Found single-module course: ${course.title}, ${totalCourseFrameCount} frames`);
-        
+
         return new Response(
           JSON.stringify({
             module: {
@@ -150,13 +164,17 @@ serve(async (req) => {
               isPartial: false,
               isStalled: false,
               hasTranscript: Array.isArray(course.transcript) && course.transcript.length > 0,
-              hasFrames: totalCourseFrameCount > 0
+              hasFrames: totalCourseFrameCount > 0,
+              key_moments_index: (course.transformation_artifacts as any)?.key_moments_index,
+              concepts_frameworks: (course.transformation_artifacts as any)?.concepts_frameworks,
+              hidden_patterns: (course.transformation_artifacts as any)?.hidden_patterns,
+              implementation_steps: (course.transformation_artifacts as any)?.implementation_steps
             }
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      
+
       console.error("Error fetching module:", error);
       return new Response(
         JSON.stringify({ error: "Module not found" }),
@@ -168,16 +186,16 @@ serve(async (req) => {
     const hasTranscript = Array.isArray(module.transcript) && module.transcript.length > 0;
     const hasFrames = Array.isArray(module.frame_urls) && module.frame_urls.length > 0;
     const hasUsableData = hasTranscript || hasFrames;
-    
+
     // Determine if module is partial (has some data but not completed)
     const isPartial = module.status !== "completed" && hasUsableData;
     const isStalled = module.status !== "completed" && module.status !== "failed" && !["queued", "pending"].includes(module.status);
-    
+
     // Only block if truly has no usable data AND not completed
     if (module.status !== "completed" && !hasUsableData) {
       return new Response(
-        JSON.stringify({ 
-          error: "Module data not ready yet", 
+        JSON.stringify({
+          error: "Module data not ready yet",
           status: module.status,
           hasTranscript,
           hasFrames
@@ -215,7 +233,11 @@ serve(async (req) => {
           isPartial,
           isStalled,
           hasTranscript,
-          hasFrames
+          hasFrames,
+          key_moments_index: (module.transformation_artifacts as any)?.key_moments_index,
+          concepts_frameworks: (module.transformation_artifacts as any)?.concepts_frameworks,
+          hidden_patterns: (module.transformation_artifacts as any)?.hidden_patterns,
+          implementation_steps: (module.transformation_artifacts as any)?.implementation_steps
         }
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -693,15 +693,15 @@ serve(async (req) => {
 
         // Chain to PDF generation if steps were extracted
         if (implementationResult.stepsExtracted > 0) {
-          console.log(`[OneDuo] Chaining to generate-execution-pdf for artifact ${artifactId}`);
+          console.log(`[OneDuo] Chaining to generate-artifact-pdf for artifact ${artifactId}`);
 
-          const pdfResponse = await fetch(`${supabaseUrl}/functions/v1/generate-execution-pdf`, {
+          const pdfResponse = await fetch(`${supabaseUrl}/functions/v1/generate-artifact-pdf`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${supabaseServiceKey}`,
             },
-            body: JSON.stringify({ artifact_id: artifactId, include_unapproved: true }),
+            body: JSON.stringify({ artifactId: artifactId, include_unapproved: true }),
           });
 
           if (pdfResponse.ok) {

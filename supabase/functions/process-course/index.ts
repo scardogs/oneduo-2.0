@@ -3096,7 +3096,7 @@ serve(async (req) => {
       // CRITICAL: Limits frame_urls to MAX_EXPORT_FRAMES (evenly sampled) to prevent huge payloads
       case "get-export-data": {
         const { email, moduleNumber } = body;
-        const MAX_EXPORT_FRAMES = 300;
+        const MAX_EXPORT_FRAMES = 15000;
 
         // Helper: sample frames evenly across the array to represent full video duration
         const sampleFramesEvenly = (frames: string[], maxFrames: number): string[] => {

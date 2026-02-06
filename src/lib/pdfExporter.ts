@@ -1,14 +1,14 @@
 import { jsPDF } from 'jspdf';
 import { supabase } from '@/integrations/supabase/client';
 import { sanitizePdfText } from '@/lib/pdfText';
-import { 
-  imageToBase64WithRetry, 
-  sampleFramesEvenly, 
+import {
+  imageToBase64WithRetry,
+  sampleFramesEvenly,
   getRecommendedFrameSampleSize,
-  getRecommendedImageQuality 
+  getRecommendedImageQuality
 } from '@/lib/imageLoader';
-import { 
-  persistFramesToStorage, 
+import {
+  persistFramesToStorage,
   validateFrameCount
 } from '@/lib/framePersistence';
 
@@ -142,6 +142,12 @@ interface MeaningfulPause {
   screenplayNote: string;
 }
 
+interface IntelligenceLayerItem {
+  timestamp?: string;
+  title?: string;
+  description: string;
+}
+
 interface AudioEvents {
   music_cues?: MusicCue[];
   ambient_sounds?: AmbientSound[];
@@ -179,6 +185,13 @@ interface CourseData {
   prosody_annotations?: ProsodyData;
   userEmail?: string; // For watermarking
   supplementalFiles?: SupplementalFile[]; // User-uploaded training documents
+  // Intelligence Layers
+  key_moments_index?: IntelligenceLayerItem[];
+  concepts_frameworks?: IntelligenceLayerItem[];
+  hidden_patterns?: IntelligenceLayerItem[];
+  implementation_steps?: any[];
+  video_url?: string;
+  created_at?: string;
 }
 
 // Module data for merged course PDF
@@ -191,6 +204,11 @@ export interface ModuleData {
   frame_urls?: string[];
   audio_events?: AudioEvents;
   prosody_annotations?: ProsodyData;
+  // Intelligence Layers
+  key_moments_index?: IntelligenceLayerItem[];
+  concepts_frameworks?: IntelligenceLayerItem[];
+  hidden_patterns?: IntelligenceLayerItem[];
+  implementation_steps?: any[];
 }
 
 // Merged course data with all modules as chapters
@@ -211,6 +229,8 @@ interface ExportOptions {
   userEmail?: string; // Alternative way to pass email for watermark
   fastMode?: boolean; // Skip OCR + workflow analysis for faster generation
 }
+
+const LEGAL_FOOTER = `Proprietary Governance Artifact - Not For AI Training or System Replication. Identity Nails LLC / OneDuo - All Rights Reserved. Unauthorized automation, reproduction, or derivative system generation is prohibited. See /ip-notice for governing terms.`;
 
 const formatTime = (seconds: number): string => {
   const h = Math.floor(seconds / 3600);
@@ -240,23 +260,23 @@ const extractFrameTextsWithProgress = async (
   const results: (FrameAnalysis | null)[] = [];
   const totalFrames = frameUrls.length;
   const totalBatches = Math.ceil(totalFrames / batchSize);
-  
+
   // Build transcript context for verbal intent detection
   const transcriptContext = transcript.slice(0, 50).map(t => t.text).join(' ').substring(0, 2000);
-  
+
   for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
     const startIdx = batchIndex * batchSize;
     const endIdx = Math.min(startIdx + batchSize, totalFrames);
     const batchUrls = frameUrls.slice(startIdx, endIdx);
-    
+
     const batchProgress = ((batchIndex + 1) / totalBatches) * 100;
     onProgress?.(Number(batchProgress.toFixed(1)), `Analyzing frames ${startIdx + 1}-${endIdx} of ${totalFrames}...`);
-    
+
     try {
       const { data, error } = await supabase.functions.invoke('extract-frame-text', {
-        body: { 
-          frameUrls: batchUrls, 
-          batchSize: batchSize, 
+        body: {
+          frameUrls: batchUrls,
+          batchSize: batchSize,
           videoDuration,
           startIndex: startIdx,
           transcriptContext, // Pass transcript for verbal intent detection
@@ -274,7 +294,7 @@ const extractFrameTextsWithProgress = async (
       results.push(...batchUrls.map(() => null));
     }
   }
-  
+
   return results;
 };
 
@@ -286,7 +306,7 @@ const analyzeWorkflowSequences = async (
   onProgress?: (progress: number, status: string) => void
 ): Promise<WorkflowAnalysis | null> => {
   onProgress?.(36, 'Analyzing workflow sequences and dependencies...');
-  
+
   try {
     const { data, error } = await supabase.functions.invoke('analyze-workflow-sequence', {
       body: {
@@ -295,12 +315,12 @@ const analyzeWorkflowSequences = async (
         videoDuration,
       }
     });
-    
+
     if (error) {
       console.error('Workflow analysis failed:', error);
       return null;
     }
-    
+
     return data as WorkflowAnalysis;
   } catch (error) {
     console.error('Failed to analyze workflows:', error);
@@ -333,8 +353,8 @@ const getEmphasisLabels = (flags: EmphasisFlags): string[] => {
 };
 
 const hasAnyEmphasis = (flags: EmphasisFlags): boolean => {
-  return flags.highlight_detected || flags.text_selected || flags.cursor_pause || 
-         flags.zoom_focus || flags.lingering_frame || flags.bold_text || flags.underline_detected;
+  return flags.highlight_detected || flags.text_selected || flags.cursor_pause ||
+    flags.zoom_focus || flags.lingering_frame || flags.bold_text || flags.underline_detected;
 };
 
 // Get prosody label (ASCII-safe)
@@ -367,9 +387,9 @@ const getConfidenceColor = (source?: string): { r: number; g: number; b: number 
 };
 
 // Frame sampling targets (keeps PDFs proportional to video length)
-const FRAMES_PER_MINUTE_TARGET = 2.5;
-const MIN_EXPORT_FRAMES = 100;
-const MAX_EXPORT_FRAMES = 1500;
+const FRAMES_PER_MINUTE_TARGET = 180; // 3 FPS * 60 seconds = Every single frame included
+const MIN_EXPORT_FRAMES = 250;
+const MAX_EXPORT_FRAMES = 15000;
 
 const clampNumber = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -380,6 +400,7 @@ const getTargetExportFrames = (videoDurationSeconds: number): number => {
   }
   const minutes = videoDurationSeconds / 60;
   const target = Math.round(minutes * FRAMES_PER_MINUTE_TARGET);
+  // Cap at MAX_EXPORT_FRAMES to prevent browser memory issues during PDF generation
   return clampNumber(target, MIN_EXPORT_FRAMES, MAX_EXPORT_FRAMES);
 };
 
@@ -399,15 +420,15 @@ export const generateChatGPTPDF = async (
     userEmail,
     fastMode = true, // New: enables all speed optimizations
   } = options;
-  
+
   // In fast mode, force OCR and workflow off
   const effectiveIncludeOCR = fastMode ? false : includeOCR;
   const effectiveIncludeWorkflow = fastMode ? false : includeWorkflowAnalysis;
-  
+
   // Get email for watermarking (from options or course data)
   const watermarkEmail = userEmail || course.userEmail || localStorage.getItem('courseagent_email') || '';
   const watermarkTimestamp = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
-  
+
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -423,19 +444,19 @@ export const generateChatGPTPDF = async (
   // Watermark function - Proprietary Intel footer on every page
   const addWatermark = () => {
     if (!watermarkEmail) return;
-    
+
     const footerY = pageHeight - 10;
-    
+
     // Line 1: Proprietary Intel header with user email and date
     pdf.setFontSize(7);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(150, 150, 150);
     pdf.text(`Proprietary Intel: OneDuo Thinking Layer`, margin, footerY);
-    
+
     pdf.setFont('helvetica', 'normal');
     pdf.text(`| Authorized User: ${watermarkEmail}`, margin + 52, footerY);
     pdf.text(`| Distilled: ${watermarkTimestamp}`, pageWidth - margin, footerY, { align: 'right' });
-    
+
     // Line 2: Sacred trust notice (social watermarking - if leaked, source is identified)
     pdf.setFontSize(6);
     pdf.setTextColor(130, 130, 130);
@@ -504,18 +525,18 @@ export const generateChatGPTPDF = async (
   // Calculate recommended quality based on how many frames we're actually embedding.
   const recommendedQuality = getRecommendedImageQuality(Math.max(effectiveMaxFrames, allFrames.length));
   const effectiveQuality = Math.min(requestedImageQuality, recommendedQuality);
-  
+
   // Log frame sampling decision for large courses
   if (allFrames.length > 500 || effectiveMaxFrames > 500) {
     console.log(
       `Large course detected: ${allFrames.length} frames available. Embedding ${effectiveMaxFrames} frames at ${Math.round(effectiveQuality * 100)}% quality.`
     );
   }
-  
+
   // Use even sampling to select frames that span the ENTIRE video
   const sampledFrameUrls = sampleFramesEvenly(allFrames, effectiveMaxFrames);
   const totalFrames = sampledFrameUrls.length;
-  
+
   // ========== PHASE 0: PERSIST FRAMES TO STORAGE ==========
   // Extract fresh frames from stored video and persist to our storage.
   // GRACEFUL DEGRADATION: If frame persistence fails, continue with transcript-only PDF
@@ -523,13 +544,13 @@ export const generateChatGPTPDF = async (
   let framesEmbedded = 0;
   let framePersistenceFailed = false;
   let framePersistenceError = '';
-  
+
   // Start at 0% progress
   onProgress?.(0, 'Preparing PDF generation...');
-  
+
   if (totalFrames > 0 && course.id) {
     onProgress?.(0, `Extracting ${effectiveMaxFrames} frames from video...`);
-    
+
     try {
       const runPersist = async (forceReExtract: boolean) =>
         persistFramesToStorage(
@@ -563,14 +584,14 @@ export const generateChatGPTPDF = async (
       } else {
         // SUCCESS: We have frames
         const successRate = Math.round((persistResult.urls.length / effectiveMaxFrames) * 100);
-        
+
         if (successRate < 50) {
           // HARD-FAIL: Less than 50% frames is unacceptable
           const errorMessage = `Only ${successRate}% of frames persisted (${persistResult.urls.length}/${effectiveMaxFrames}). PDF would be incomplete. Please retry.`;
           console.error(`[pdfExporter] INTEGRITY GATE: Insufficient frames - ${errorMessage}`);
           throw new Error(errorMessage);
         }
-        
+
         if (!validateFrameCount(persistResult.urls.length, effectiveMaxFrames)) {
           console.warn(
             `[pdfExporter] Partial frame persistence: ${persistResult.urls.length}/${effectiveMaxFrames} (${successRate}%)`
@@ -585,12 +606,12 @@ export const generateChatGPTPDF = async (
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-      
+
       // Check if this is our own integrity gate error - rethrow it
       if (errorMsg.includes('INTEGRITY GATE') || errorMsg.includes('Please retry')) {
         throw err;
       }
-      
+
       // For unexpected errors, also fail - don't silently degrade
       console.error(`[pdfExporter] Frame persistence failed: ${errorMsg}`);
       throw new Error(`Frame extraction failed: ${errorMsg}. Please retry or contact support.`);
@@ -605,17 +626,17 @@ export const generateChatGPTPDF = async (
     console.error('[pdfExporter] INTEGRITY GATE: Missing course ID for frame persistence');
     throw new Error('Missing course ID - cannot generate PDF. Please contact support.');
   }
-  
+
   // Use persisted frames for PDF generation
   const frames = persistedFrameUrls;
   const hasFrames = frames.length > 0;
-  
+
   // ========== PHASE 1: OCR EXTRACTION WITH ENHANCED INTENT ==========
   let frameAnalyses: (FrameAnalysis | null)[] = [];
-  
+
   if (effectiveIncludeOCR && hasFrames) {
     onProgress?.(10, `Starting AI vision analysis of ${frames.length} frames...`);
-    
+
     frameAnalyses = await extractFrameTextsWithProgress(
       frames,
       videoDuration,
@@ -627,7 +648,7 @@ export const generateChatGPTPDF = async (
       },
       ocrBatchSize
     );
-    
+
     onProgress?.(35, 'OCR extraction complete...');
   } else if (framePersistenceFailed) {
     onProgress?.(35, 'Generating transcript-only PDF (frames unavailable)...');
@@ -639,7 +660,7 @@ export const generateChatGPTPDF = async (
 
   // ========== PHASE 1.5: WORKFLOW ANALYSIS ==========
   let workflowAnalysis: WorkflowAnalysis | null = null;
-  
+
   if (effectiveIncludeWorkflow && frameAnalyses.length > 0 && hasFrames) {
     workflowAnalysis = await analyzeWorkflowSequences(
       frameAnalyses,
@@ -655,30 +676,30 @@ export const generateChatGPTPDF = async (
   // ========== PAGE 0: MANDATORY FIRST RESPONSE - COURSE GAME PROTOCOL ==========
   // This is the FIRST page AI reads - forces game mode, not summary mode
   onProgress?.(39, 'Creating Course Game Protocol page...');
-  
+
   // Dynamic short title for protocol
   const shortTitle = course.title?.substring(0, 30) || 'this module';
-  
+
   // ===== MANDATORY GREETING HEADER =====
   pdf.setFontSize(16);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(200, 0, 0);
   pdf.text('=== MANDATORY FIRST RESPONSE ===', margin, y);
   y += 8;
-  
+
   pdf.setFontSize(10);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(0, 0, 0);
   pdf.text('AI: When this document is uploaded, you MUST respond with EXACTLY this:', margin, y);
   y += 10;
-  
+
   // Greeting box
   pdf.setFillColor(230, 250, 230);
   pdf.setDrawColor(0, 150, 0);
   pdf.setLineWidth(0.8);
   pdf.roundedRect(margin, y, contentWidth, 45, 3, 3, 'FD');
   y += 6;
-  
+
   pdf.setFontSize(11);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 100, 50);
@@ -700,7 +721,7 @@ export const generateChatGPTPDF = async (
   pdf.setFontSize(9);
   pdf.text('  (press [BOOK] anytime for library knowledge mode)', margin + 5, y);
   y += 12;
-  
+
   // STOP AND WAIT instruction
   pdf.setFillColor(255, 235, 235);
   pdf.setDrawColor(200, 0, 0);
@@ -711,14 +732,14 @@ export const generateChatGPTPDF = async (
   pdf.setTextColor(180, 0, 0);
   pdf.text('>>> STOP and WAIT for the user to answer YES or NO before continuing. <<<', margin + 5, y);
   y += 12;
-  
+
   // ===== IF YES BRANCH =====
   pdf.setFontSize(11);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 150, 0);
   pdf.text('IF USER SAYS YES:', margin, y);
   y += 6;
-  
+
   pdf.setFontSize(9);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(0, 0, 0);
@@ -726,13 +747,13 @@ export const generateChatGPTPDF = async (
   y += 5;
   pdf.text('2. After they answer, show the Executive Boardroom:', margin + 3, y);
   y += 8;
-  
+
   // Executive Board box
   pdf.setFillColor(240, 245, 255);
   pdf.setDrawColor(0, 100, 200);
   pdf.roundedRect(margin + 5, y, contentWidth - 10, 48, 2, 2, 'FD');
   y += 6;
-  
+
   pdf.setFontSize(10);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 80, 150);
@@ -757,14 +778,14 @@ export const generateChatGPTPDF = async (
   pdf.setTextColor(150, 100, 0);
   pdf.text('Judge [HAMMER][CROWN], what is your first command?', margin + 10, y);
   y += 12;
-  
+
   // ===== IF NO BRANCH =====
   pdf.setFontSize(11);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(200, 100, 0);
   pdf.text('IF USER SAYS NO:', margin, y);
   y += 6;
-  
+
   pdf.setFontSize(9);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(0, 0, 0);
@@ -776,7 +797,7 @@ export const generateChatGPTPDF = async (
   y += 5;
   pdf.text('4. In guided mode: Ask ONE question at a time. Wait for answer. Check understanding.', margin + 3, y);
   y += 10;
-  
+
   // ===== GPS FORMAT =====
   pdf.setFillColor(255, 250, 230);
   pdf.setDrawColor(200, 150, 0);
@@ -792,20 +813,190 @@ export const generateChatGPTPDF = async (
   pdf.setTextColor(80, 60, 0);
   pdf.text('[====-----] XX%  |  COMPLETED: [previous]  |  CURRENT: -> [active]  |  UP NEXT: [future]', margin + 5, y);
   y += 14;
-  
-  // ===== ANTI-SUMMARY RULES =====
-  pdf.setFillColor(255, 230, 230);
-  pdf.setDrawColor(200, 0, 0);
-  pdf.setLineWidth(0.8);
+
+  // ========== PAGE 1: TITLE PAGE & MASTER FORMAT ==========
+  addPageWithHeaders();
+  onProgress?.(40, 'Creating Master Title Page...');
+
+  pdf.setFontSize(24);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(0, 0, 0);
+  const titleLines = pdf.splitTextToSize(course.title || "Untitled Session", contentWidth);
+  pdf.text(titleLines, margin, y + 10);
+  y += 20 + (titleLines.length * 8);
+
+  pdf.setFontSize(12);
+  pdf.setFont('helvetica', 'normal');
+  pdf.text(`Session Date: ${course.created_at ? new Date(course.created_at).toLocaleDateString() : new Date().toLocaleDateString()}`, margin, y);
+  y += 8;
+  pdf.text(`Speaker(s): Not Specified`, margin, y);
+  y += 8;
+  const sourceUrl = course.video_url || "N/A";
+  pdf.text(`Source URL: ${sourceUrl.substring(0, 60)}${sourceUrl.length > 60 ? '...' : ''}`, margin, y);
+  y += 25;
+
+  pdf.setFontSize(18);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('MASTER PDF FORMAT FOR AI', margin, y);
+  y += 12;
+
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setTextColor(50, 50, 50);
+  pdf.text('1. Full Verbatim Transcript (Monospace)', margin + 3, y);
+  y += 6;
+  pdf.text('2. Layer A: Key Moments Index', margin + 3, y);
+  y += 6;
+  pdf.text('3. Layer B: Concepts & Frameworks', margin + 3, y);
+  y += 6;
+  pdf.text('4. Layer C: Actionable Steps', margin + 3, y);
+  y += 6;
+  pdf.text('5. Layer D: Hidden Patterns & Insights', margin + 3, y);
+  y += 15;
+
+  pdf.setFontSize(8);
+  pdf.setTextColor(150, 150, 150);
+  const legalText = pdf.splitTextToSize(LEGAL_FOOTER, contentWidth);
+  pdf.text(legalText, margin, y);
+  y += 20;
+
+  // ========== PAGES 2+: FULL VERBATIM TRANSCRIPT (MONOSPACE) ==========
+  addPageWithHeaders();
+  onProgress?.(41, 'Adding Monospace Verbatim Transcript...');
+
+  pdf.setFontSize(14);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(0, 0, 0);
+  pdf.text('FULL VERBATIM TRANSCRIPT', margin, y);
+  y += 10;
+
+  pdf.setFont('courier', 'normal');
+  pdf.setFontSize(9);
+  pdf.setTextColor(30, 30, 30);
+
+  const transcriptLines: string[] = [];
+  transcript.forEach((seg: any) => {
+    const ts = formatTime(seg.start);
+    const speaker = seg.speaker || "Speaker";
+    const text = (seg.text || "").replace(/[()\\]/g, '');
+    const line = `[${ts}] ${speaker}: ${text}`;
+    // Wrap to fit page width
+    const splitLine = pdf.splitTextToSize(line, contentWidth);
+    transcriptLines.push(...splitLine);
+  });
+
+  transcriptLines.forEach((line) => {
+    if (y > pageHeight - 20) {
+      addPageWithHeaders();
+      pdf.setFont('courier', 'normal');
+      pdf.setFontSize(9);
+    }
+    pdf.text(line, margin, y);
+    y += 4.5;
+  });
+
+  y += 10;
+
+  // ========== INTELLIGENCE LAYERS ==========
+
+  // Layer A: Key Moments
+  addPageWithHeaders();
+  onProgress?.(42, 'Adding Intelligence Layer A...');
+  pdf.setFontSize(16);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('INTELLIGENCE LAYER A: KEY MOMENTS INDEX', margin, y);
+  y += 15;
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'normal');
+  if (course.key_moments_index && course.key_moments_index.length > 0) {
+    course.key_moments_index.forEach((m) => {
+      checkPageBreak(12);
+      pdf.text(`[${m.timestamp || '--:--'}] - ${m.description}`, margin + 5, y);
+      y += 8;
+    });
+  } else {
+    pdf.text('(No key moments indexed yet.)', margin + 5, y);
+    y += 10;
+  }
+
+  // Layer B: Concepts & Frameworks
+  addPageWithHeaders();
+  onProgress?.(43, 'Adding Intelligence Layer B...');
+  pdf.setFontSize(16);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('INTELLIGENCE LAYER B: CONCEPTS & FRAMEWORKS', margin, y);
+  y += 15;
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'normal');
+  if (course.concepts_frameworks && course.concepts_frameworks.length > 0) {
+    course.concepts_frameworks.forEach((c) => {
+      checkPageBreak(20);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`* ${c.title || 'Concept'}`, margin + 5, y);
+      y += 6;
+      pdf.setFont('helvetica', 'normal');
+      const descLines = pdf.splitTextToSize(c.description, contentWidth - 15);
+      pdf.text(descLines, margin + 10, y);
+      y += (descLines.length * 5) + 5;
+    });
+  } else {
+    pdf.text('(No models or systems identified yet.)', margin + 5, y);
+    y += 10;
+  }
+
+  // Layer C: Actionable Steps
+  addPageWithHeaders();
+  onProgress?.(44, 'Adding Intelligence Layer C...');
+  pdf.setFontSize(16);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('INTELLIGENCE LAYER C: ACTIONABLE STEPS', margin, y);
+  y += 15;
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'normal');
+  if (course.implementation_steps && course.implementation_steps.length > 0) {
+    course.implementation_steps.forEach((s, idx) => {
+      checkPageBreak(15);
+      pdf.text(`${s.step_number || idx + 1}. ${s.step_title || s.description}`, margin + 5, y);
+      y += 8;
+    });
+  } else {
+    pdf.text('(No actionable steps proposed yet.)', margin + 5, y);
+    y += 10;
+  }
+
+  // Layer D: Hidden Patterns
+  addPageWithHeaders();
+  onProgress?.(45, 'Adding Intelligence Layer D...');
+  pdf.setFontSize(16);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('INTELLIGENCE LAYER D: HIDDEN PATTERNS & INSIGHTS', margin, y);
+  y += 15;
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'normal');
+  if (course.hidden_patterns && course.hidden_patterns.length > 0) {
+    course.hidden_patterns.forEach((p) => {
+      checkPageBreak(20);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`* ${p.title || 'Pattern'}`, margin + 5, y);
+      y += 6;
+      pdf.setFont('helvetica', 'normal');
+      const descLines = pdf.splitTextToSize(p.description, contentWidth - 15);
+      pdf.text(descLines, margin + 10, y);
+      y += (descLines.length * 5) + 5;
+    });
+  } else {
+    pdf.text('(No patterns or persuasion techniques analyzed yet.)', margin + 5, y);
+    y += 10;
+  }
   pdf.roundedRect(margin, y, contentWidth, 40, 3, 3, 'FD');
   y += 6;
-  
+
   pdf.setFontSize(11);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(180, 0, 0);
   pdf.text('=== ANTI-SUMMARY RULES ===', margin + 5, y);
   y += 6;
-  
+
   pdf.setFontSize(8);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(100, 0, 0);
@@ -821,13 +1012,13 @@ export const generateChatGPTPDF = async (
   pdf.setFont('helvetica', 'bold');
   pdf.text('INSTEAD: Greeting -> Watch check (YES/NO) -> Branch accordingly -> Executive Boardroom after vision.', margin + 5, y);
   y += 12;
-  
+
   // ===== VALIDATION BLOCK =====
   pdf.setFillColor(240, 248, 255);
   pdf.setDrawColor(0, 100, 200);
   pdf.roundedRect(margin, y, contentWidth, 25, 2, 2, 'FD');
   y += 6;
-  
+
   pdf.setFontSize(10);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 80, 150);
@@ -846,19 +1037,19 @@ export const generateChatGPTPDF = async (
 
   // ===== FOUNDER ESCALATION PROTOCOL (VA/Founder Loop) =====
   checkPageBreak(75);
-  
+
   pdf.setFillColor(255, 245, 230);
   pdf.setDrawColor(220, 120, 0);
   pdf.setLineWidth(0.8);
   pdf.roundedRect(margin, y, contentWidth, 70, 3, 3, 'FD');
   y += 6;
-  
+
   pdf.setFontSize(11);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(180, 90, 0);
   pdf.text('[ALERT] FOUNDER ESCALATION PROTOCOL', margin + 5, y);
   y += 6;
-  
+
   pdf.setFontSize(8);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(80, 50, 0);
@@ -868,17 +1059,17 @@ export const generateChatGPTPDF = async (
   y += 4;
   pdf.text('"your audience", "your product", "depends on your", "unique to you", "your decision"', margin + 5, y);
   y += 6;
-  
+
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(180, 0, 0);
   pdf.text('>>> PAUSE - Do NOT proceed past founder decision points. <<<', margin + 5, y);
   y += 6;
-  
+
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(50, 50, 50);
   pdf.text('Say: "[ALERT] PAUSE - This step needs your founder input. Copy this message and send it to them:"', margin + 5, y);
   y += 6;
-  
+
   pdf.setFillColor(255, 255, 255);
   pdf.roundedRect(margin + 8, y, contentWidth - 16, 20, 2, 2, 'F');
   y += 5;
@@ -890,7 +1081,7 @@ export const generateChatGPTPDF = async (
   y += 4;
   pdf.text('[QUESTION] What I need from you: [specific question] | [HOURGLASS] Paused until you respond.', margin + 12, y);
   y += 10;
-  
+
   pdf.setFontSize(9);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 100, 180);
@@ -900,19 +1091,19 @@ export const generateChatGPTPDF = async (
   // ========== NOTICE PAGE: FRAMES UNAVAILABLE ==========
   if (framePersistenceFailed) {
     addPageWithHeaders();
-    
+
     pdf.setFillColor(255, 245, 230);
     pdf.setDrawColor(220, 120, 0);
     pdf.setLineWidth(1);
     pdf.roundedRect(margin, y, contentWidth, 50, 3, 3, 'FD');
     y += 8;
-    
+
     pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(180, 90, 0);
     pdf.text('NOTICE: Visual Frames Unavailable', margin + 5, y);
     y += 8;
-    
+
     pdf.setFontSize(10);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(80, 50, 0);
@@ -922,7 +1113,7 @@ export const generateChatGPTPDF = async (
     const noticeLines = pdf.splitTextToSize(noticeText, contentWidth - 10);
     pdf.text(noticeLines, margin + 5, y);
     y += noticeLines.length * 5 + 5;
-    
+
     pdf.setFontSize(9);
     pdf.setTextColor(100, 70, 0);
     pdf.text(`Reason: ${framePersistenceError}`, margin + 5, y);
@@ -958,7 +1149,7 @@ export const generateChatGPTPDF = async (
     // Each workflow
     workflowAnalysis.workflows.forEach((workflow, wIdx) => {
       checkPageBreak(60);
-      
+
       // Workflow header
       pdf.setFillColor(255, 250, 230);
       pdf.setDrawColor(200, 150, 0);
@@ -969,15 +1160,15 @@ export const generateChatGPTPDF = async (
       pdf.setTextColor(150, 100, 0);
       pdf.text(`WORKFLOW ${wIdx + 1}: ${workflow.title}`, margin + 3, y);
       y += 10;
-      
+
       // Steps
       pdf.setFontSize(9);
       workflow.steps.slice(0, 8).forEach((step) => {
         checkPageBreak(15);
-        
+
         const isCritical = step.mustNotSkip;
         const confidenceColor = getConfidenceColor(step.confidenceLevel);
-        
+
         if (isCritical) {
           pdf.setFillColor(255, 235, 235);
           pdf.setDrawColor(200, 0, 0);
@@ -985,41 +1176,41 @@ export const generateChatGPTPDF = async (
           pdf.setFillColor(250, 250, 250);
           pdf.setDrawColor(180, 180, 180);
         }
-        
+
         pdf.roundedRect(margin + 5, y, contentWidth - 10, 10, 1, 1, 'FD');
         y += 6;
-        
+
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(confidenceColor.r, confidenceColor.g, confidenceColor.b);
-        
+
         let stepText = `Step ${step.stepNumber}: `;
         if (isCritical) stepText = `>>> Step ${step.stepNumber} [CRITICAL]: `;
-        
+
         pdf.text(stepText, margin + 8, y);
-        
+
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(50, 50, 50);
         const descWidth = contentWidth - 50;
         const truncatedDesc = step.description.length > 60 ? step.description.substring(0, 57) + '...' : step.description;
         pdf.text(truncatedDesc, margin + 35 + (isCritical ? 15 : 0), y);
-        
+
         // Confidence indicator
         pdf.setFontSize(7);
         pdf.setTextColor(120, 120, 120);
         const confLabel = step.confidenceLevel === 'explicit' ? '[EXPLICIT]' : step.confidenceLevel === 'strong' ? '[STRONG]' : '[INFERRED]';
         pdf.text(confLabel, pageWidth - margin - 20, y);
         pdf.setFontSize(9);
-        
+
         y += 8;
       });
-      
+
       if (workflow.steps.length > 8) {
         pdf.setFont('helvetica', 'italic');
         pdf.setTextColor(100, 100, 100);
         pdf.text(`... and ${workflow.steps.length - 8} more steps`, margin + 8, y);
         y += 6;
       }
-      
+
       // Sequence warnings
       if (workflow.sequenceWarnings.length > 0) {
         checkPageBreak(20);
@@ -1037,38 +1228,38 @@ export const generateChatGPTPDF = async (
         pdf.text(warning, margin + 8, y);
         y += 12;
       }
-      
+
       y += 8;
     });
 
     // Critical path summary
     if (workflowAnalysis.criticalSteps.length > 0) {
       checkPageBreak(40);
-      
+
       pdf.setFillColor(255, 230, 230);
       pdf.setDrawColor(200, 0, 0);
       const criticalHeight = 18 + Math.min(workflowAnalysis.criticalSteps.length * 6, 40);
       pdf.roundedRect(margin, y, contentWidth, criticalHeight, 2, 2, 'FD');
-      
+
       y += 6;
       pdf.setFontSize(11);
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(180, 0, 0);
       pdf.text('>>> CRITICAL STEPS - DO NOT SKIP <<<', margin + 3, y);
       y += 7;
-      
+
       pdf.setFontSize(9);
       pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(100, 0, 0);
-      
+
       workflowAnalysis.criticalSteps.slice(0, 6).forEach(step => {
         const time = formatTime(step.timestamp);
-        const confLabel = step.confidenceLevel === 'verbal_explicit' ? '[EXPLICIT]' : 
-                         step.confidenceLevel === 'visual_verbal_aligned' ? '[STRONG]' : '[INFERRED]';
+        const confLabel = step.confidenceLevel === 'verbal_explicit' ? '[EXPLICIT]' :
+          step.confidenceLevel === 'visual_verbal_aligned' ? '[STRONG]' : '[INFERRED]';
         pdf.text(`[${time}] Frame ${step.frameIndex + 1} - ${step.reason} ${confLabel}`, margin + 3, y);
         y += 5;
       });
-      
+
       if (workflowAnalysis.criticalSteps.length > 6) {
         pdf.setFont('helvetica', 'italic');
         pdf.text(`... and ${workflowAnalysis.criticalSteps.length - 6} more critical steps`, margin + 3, y);
@@ -1076,7 +1267,7 @@ export const generateChatGPTPDF = async (
       }
       y += 8;
     }
-    
+
   } else {
     // No workflow detected - show frame-based critical steps
     pdf.setFillColor(250, 250, 250);
@@ -1103,16 +1294,16 @@ export const generateChatGPTPDF = async (
 
   const audioEvents = course.audio_events || {};
   const prosodyData = course.prosody_annotations || {};
-  
+
   const musicCues = audioEvents.music_cues || [];
   const ambientSounds = audioEvents.ambient_sounds || [];
   const reactions = audioEvents.reactions || [];
   const meaningfulPauses = audioEvents.meaningful_pauses || [];
   const prosodyAnnotations = prosodyData.annotations || [];
-  
-  const hasAudioData = musicCues.length > 0 || ambientSounds.length > 0 || 
-                       reactions.length > 0 || meaningfulPauses.length > 0 ||
-                       prosodyAnnotations.length > 0;
+
+  const hasAudioData = musicCues.length > 0 || ambientSounds.length > 0 ||
+    reactions.length > 0 || meaningfulPauses.length > 0 ||
+    prosodyAnnotations.length > 0;
 
   if (hasAudioData) {
     // Overall Audio Mood
@@ -1135,23 +1326,23 @@ export const generateChatGPTPDF = async (
     // Music Cues Section
     if (musicCues.length > 0) {
       checkPageBreak(30 + musicCues.length * 12);
-      
+
       pdf.setFillColor(255, 245, 230);
       pdf.setDrawColor(200, 150, 50);
       const musicHeight = 18 + Math.min(musicCues.length * 12, 60);
       pdf.roundedRect(margin, y, contentWidth, musicHeight, 2, 2, 'FD');
-      
+
       y += 6;
       pdf.setFontSize(11);
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(150, 100, 0);
       pdf.text('[MUSIC CUES]', margin + 3, y);
       y += 7;
-      
+
       pdf.setFontSize(9);
       pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(80, 60, 20);
-      
+
       musicCues.slice(0, 5).forEach(cue => {
         const startTime = formatTime(cue.start);
         const endTime = formatTime(cue.end);
@@ -1160,7 +1351,7 @@ export const generateChatGPTPDF = async (
         pdf.text(splitCue[0], margin + 3, y);
         y += 6;
       });
-      
+
       if (musicCues.length > 5) {
         pdf.setFont('helvetica', 'italic');
         pdf.text(`... and ${musicCues.length - 5} more music cues`, margin + 3, y);
@@ -1172,23 +1363,23 @@ export const generateChatGPTPDF = async (
     // Reactions Section
     if (reactions.length > 0) {
       checkPageBreak(30 + reactions.length * 10);
-      
+
       pdf.setFillColor(255, 240, 245);
       pdf.setDrawColor(180, 100, 120);
       const reactionsHeight = 18 + Math.min(reactions.length * 10, 50);
       pdf.roundedRect(margin, y, contentWidth, reactionsHeight, 2, 2, 'FD');
-      
+
       y += 6;
       pdf.setFontSize(11);
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(150, 70, 90);
       pdf.text('[AUDIENCE/PRESENTER REACTIONS]', margin + 3, y);
       y += 7;
-      
+
       pdf.setFontSize(9);
       pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(100, 50, 60);
-      
+
       reactions.slice(0, 5).forEach(reaction => {
         const time = formatTime(reaction.timestamp);
         const intensityLabel = reaction.intensity === 'strong' ? '***' : reaction.intensity === 'moderate' ? '**' : '*';
@@ -1197,7 +1388,7 @@ export const generateChatGPTPDF = async (
         pdf.text(splitReaction[0], margin + 3, y);
         y += 5;
       });
-      
+
       if (reactions.length > 5) {
         pdf.setFont('helvetica', 'italic');
         pdf.text(`... and ${reactions.length - 5} more reactions`, margin + 3, y);
@@ -1209,23 +1400,23 @@ export const generateChatGPTPDF = async (
     // Meaningful Pauses Section
     if (meaningfulPauses.length > 0) {
       checkPageBreak(30 + meaningfulPauses.length * 10);
-      
+
       pdf.setFillColor(245, 240, 255);
       pdf.setDrawColor(120, 100, 180);
       const pausesHeight = 18 + Math.min(meaningfulPauses.length * 10, 50);
       pdf.roundedRect(margin, y, contentWidth, pausesHeight, 2, 2, 'FD');
-      
+
       y += 6;
       pdf.setFontSize(11);
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(80, 60, 140);
       pdf.text('[MEANINGFUL PAUSES/BEATS]', margin + 3, y);
       y += 7;
-      
+
       pdf.setFontSize(9);
       pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(60, 40, 100);
-      
+
       meaningfulPauses.slice(0, 8).forEach(pause => {
         const time = formatTime(pause.timestamp);
         const pauseText = `[${time}] ${pause.screenplayNote} - ${pause.meaning}`;
@@ -1233,7 +1424,7 @@ export const generateChatGPTPDF = async (
         pdf.text(splitPause[0], margin + 3, y);
         y += 5;
       });
-      
+
       if (meaningfulPauses.length > 8) {
         pdf.setFont('helvetica', 'italic');
         pdf.text(`... and ${meaningfulPauses.length - 8} more pauses`, margin + 3, y);
@@ -1272,7 +1463,7 @@ export const generateChatGPTPDF = async (
   const mustNotSkipFrames = frameAnalyses.filter(f => f?.mustNotSkip).length;
   const explicitIntentFrames = frameAnalyses.filter(f => f?.intentSource === 'verbal_explicit' || f?.intentSource === 'visual_verbal_aligned').length;
   const avgConfidence = frameAnalyses.filter(f => f !== null).reduce((sum, f) => sum + (f?.intentConfidence || 0), 0) / Math.max(ocrFrames, 1);
-  
+
   const totalAudioEvents = musicCues.length + ambientSounds.length + reactions.length + meaningfulPauses.length;
 
   const metadata = [
@@ -1304,7 +1495,7 @@ export const generateChatGPTPDF = async (
   pdf.setFillColor(255, 248, 230);
   pdf.setDrawColor(200, 150, 0);
   pdf.roundedRect(margin, y, contentWidth, 25, 3, 3, 'FD');
-  
+
   y += 8;
   pdf.setFontSize(11);
   pdf.setFont('helvetica', 'bold');
@@ -1315,13 +1506,13 @@ export const generateChatGPTPDF = async (
   pdf.setFontSize(9);
   pdf.setTextColor(80, 60, 0);
   pdf.text('Focus on [EXPLICIT] and [STRONG] confidence, >>> CRITICAL <<< markers, and workflows.', margin + 5, y);
-  
+
   y += 20;
 
   // ========== HELPER: Get inline audio annotations for a timestamp ==========
   const getInlineAudioAnnotations = (timestamp: number, windowSeconds: number = 3): string[] => {
     const annotations: string[] = [];
-    
+
     musicCues.forEach(cue => {
       if (timestamp >= cue.start && timestamp <= cue.end) {
         if (Math.abs(timestamp - cue.start) < windowSeconds) {
@@ -1331,39 +1522,39 @@ export const generateChatGPTPDF = async (
         }
       }
     });
-    
+
     ambientSounds.forEach(ambient => {
       if (Math.abs(ambient.timestamp - timestamp) < windowSeconds) {
         annotations.push(`(${ambient.sound} - ${ambient.meaning})`);
       }
     });
-    
+
     reactions.forEach(reaction => {
       if (Math.abs(reaction.timestamp - timestamp) < windowSeconds) {
         const intensity = reaction.intensity === 'strong' ? ' - emphatic' : reaction.intensity === 'moderate' ? '' : ' - subtle';
         annotations.push(`(${reaction.type}${intensity} - ${reaction.context})`);
       }
     });
-    
+
     meaningfulPauses.forEach(pause => {
       if (Math.abs(pause.timestamp - timestamp) < windowSeconds) {
         annotations.push(`${pause.screenplayNote}`);
       }
     });
-    
+
     prosodyAnnotations.forEach(prosody => {
       if (Math.abs(prosody.timestamp - timestamp) < windowSeconds) {
         annotations.push(`${prosody.annotation}`);
       }
     });
-    
+
     return annotations;
   };
 
   // ========== PAGES 4+: TIMESTAMP BLOCKS ==========
   // Only render frame blocks if we have frames
   const renderableFrameCount = frames.length;
-  
+
   if (renderableFrameCount > 0) {
     onProgress?.(45, 'Processing frames with OCR data...');
 
@@ -1376,361 +1567,361 @@ export const generateChatGPTPDF = async (
       const progress = 45 + ((i + 1) / renderableFrameCount) * 45;
       onProgress?.(Number(progress.toFixed(1)), `Embedding frame ${i + 1} of ${renderableFrameCount}...`);
 
-    // Use overlap-based matching: check if segment's time range overlaps with frame's time range
-    // This fixes the issue where long transcript segments (50-100s) weren't matching because
-    // their start time fell outside the narrow frame window, even when speech overlapped
-    const relevantTranscript = transcript.filter(seg => {
-      const segStart = seg.start || 0;
-      const segEnd = seg.end || segStart + 60; // Default 60s if no end time provided
-      const frameStart = Math.max(0, frameTime - frameDuration / 2);
-      const frameEnd = frameTime + frameDuration / 2;
-      
-      // Segment overlaps with frame if: segment starts before frame ends AND segment ends after frame starts
-      return segStart < frameEnd && segEnd > frameStart;
-    });
+      // Use overlap-based matching: check if segment's time range overlaps with frame's time range
+      // This fixes the issue where long transcript segments (50-100s) weren't matching because
+      // their start time fell outside the narrow frame window, even when speech overlapped
+      const relevantTranscript = transcript.filter(seg => {
+        const segStart = seg.start || 0;
+        const segEnd = seg.end || segStart + 60; // Default 60s if no end time provided
+        const frameStart = Math.max(0, frameTime - frameDuration / 2);
+        const frameEnd = frameTime + frameDuration / 2;
 
-    const transcriptText = relevantTranscript.length > 0
-      ? relevantTranscript.map(s => {
+        // Segment overlaps with frame if: segment starts before frame ends AND segment ends after frame starts
+        return segStart < frameEnd && segEnd > frameStart;
+      });
+
+      const transcriptText = relevantTranscript.length > 0
+        ? relevantTranscript.map(s => {
           const speakerLabel = s.speaker ? `[${s.speaker}]: ` : '';
           return `${speakerLabel}${s.text}`;
         }).join(' ')
-      : '(No transcript for this segment)';
-    
-    const inlineAudioAnnotations = getInlineAudioAnnotations(frameTime);
+        : '(No transcript for this segment)';
 
-    const hasOCR = frameAnalysis && frameAnalysis.text.length > 0;
-    const hasIntent = frameAnalysis && frameAnalysis.instructorIntent.length > 0;
-    const hasProsody = frameAnalysis?.prosody?.parenthetical && frameAnalysis.prosody.parenthetical.length > 0;
-    const hasInlineAudio = inlineAudioAnnotations.length > 0;
-    const isCritical = frameAnalysis?.mustNotSkip;
-    const neededHeight = 100 + (hasOCR ? 45 : 0) + (hasIntent ? 25 : 0) + (hasProsody ? 12 : 0) + (hasInlineAudio ? 15 : 0) + (isCritical ? 10 : 0);
-    checkPageBreak(neededHeight);
+      const inlineAudioAnnotations = getInlineAudioAnnotations(frameTime);
 
-    const emphasisLabels = frameAnalysis ? getEmphasisLabels(frameAnalysis.emphasisFlags) : [];
-    const isKeyMoment = emphasisLabels.length > 0;
-    const textType = frameAnalysis?.textType || 'other';
-    
-    // ===== TIMESTAMP BLOCK HEADER =====
-    if (isCritical) {
-      pdf.setFillColor(255, 230, 230);
-      pdf.setDrawColor(200, 0, 0);
-    } else if (isKeyMoment) {
-      pdf.setFillColor(255, 245, 220);
-      pdf.setDrawColor(200, 150, 0);
-    } else {
-      pdf.setFillColor(245, 245, 250);
-      pdf.setDrawColor(150, 150, 180);
-    }
-    
-    pdf.setLineWidth(0.3);
-    pdf.roundedRect(margin, y, contentWidth, 12, 2, 2, 'FD');
-    pdf.setFontSize(11);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(30, 30, 80);
-    
-    // Determine step description from OCR or intent
-    const actionDescription = frameAnalysis?.instructorIntent || frameAnalysis?.text?.substring(0, 50) || 'Observe screen state';
-    
-    // Calculate confidence as High/Medium/Low
-    const confidencePercent = (frameAnalysis?.intentConfidence || 0.5) * 100;
-    const confidenceLevel = confidencePercent >= 80 ? 'High' : confidencePercent >= 50 ? 'Medium' : 'Low';
-    const confidenceLogic = confidencePercent >= 80 ? 'OCR matches UI perfectly' : 
-                            confidencePercent >= 50 ? 'UI match but some elements unclear' : 
-                            'UI differs from expected state';
-    
-    // Determine if this is a validation checkpoint (success state detection)
-    const isValidationCheckpoint = isCritical || 
-      (frameAnalysis?.text?.toLowerCase().includes('success') ||
-       frameAnalysis?.text?.toLowerCase().includes('complete') ||
-       frameAnalysis?.text?.toLowerCase().includes('saved') ||
-       frameAnalysis?.text?.toLowerCase().includes('confirmed') ||
-       frameAnalysis?.keyElements?.some(e => e.toLowerCase().includes('confirmation')));
-    
-    let headerText = `STEP ${i + 1}: ${formatTime(frameTime)} | ${getTextTypeLabel(textType)}`;
-    if (isValidationCheckpoint) headerText += ' | [VALIDATION CHECKPOINT]';
-    else if (isCritical) headerText += ' | >>> CRITICAL <<<';
-    else if (isKeyMoment) headerText += ' | [KEY MOMENT]';
-    
-    pdf.text(headerText, margin + 3, y + 8);
-    y += 15;
+      const hasOCR = frameAnalysis && frameAnalysis.text.length > 0;
+      const hasIntent = frameAnalysis && frameAnalysis.instructorIntent.length > 0;
+      const hasProsody = frameAnalysis?.prosody?.parenthetical && frameAnalysis.prosody.parenthetical.length > 0;
+      const hasInlineAudio = inlineAudioAnnotations.length > 0;
+      const isCritical = frameAnalysis?.mustNotSkip;
+      const neededHeight = 100 + (hasOCR ? 45 : 0) + (hasIntent ? 25 : 0) + (hasProsody ? 12 : 0) + (hasInlineAudio ? 15 : 0) + (isCritical ? 10 : 0);
+      checkPageBreak(neededHeight);
 
-    // ===== PER-STEP VALIDATION METADATA BLOCK (ANTI-HALLUCINATION MVP) =====
-    const metadataHeight = 40 + (isValidationCheckpoint ? 10 : 0);
-    
-    if (isCritical || isValidationCheckpoint) {
-      pdf.setFillColor(255, 240, 240);
-      pdf.setDrawColor(200, 50, 50);
-    } else if (confidenceLevel === 'High') {
-      pdf.setFillColor(240, 255, 240);
-      pdf.setDrawColor(50, 150, 50);
-    } else if (confidenceLevel === 'Medium') {
-      pdf.setFillColor(255, 250, 230);
-      pdf.setDrawColor(200, 150, 50);
-    } else {
-      pdf.setFillColor(255, 245, 245);
-      pdf.setDrawColor(200, 100, 100);
-    }
-    
-    pdf.setLineWidth(0.5);
-    pdf.roundedRect(margin, y, contentWidth, metadataHeight, 2, 2, 'FD');
-    y += 5;
-    
-    // ACTION line
-    pdf.setFontSize(8);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(50, 50, 50);
-    pdf.text('ACTION:', margin + 3, y);
-    pdf.setFont('helvetica', 'normal');
-    const truncatedAction = actionDescription.length > 70 ? actionDescription.substring(0, 67) + '...' : actionDescription;
-    pdf.text(truncatedAction, margin + 22, y);
-    y += 5;
-    
-    // CONFIDENCE line
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('CONFIDENCE:', margin + 3, y);
-    pdf.setFont('helvetica', 'normal');
-    const confColor = confidenceLevel === 'High' ? { r: 0, g: 120, b: 50 } : 
-                      confidenceLevel === 'Medium' ? { r: 180, g: 120, b: 0 } : 
-                      { r: 180, g: 50, b: 50 };
-    pdf.setTextColor(confColor.r, confColor.g, confColor.b);
-    pdf.text(`${confidenceLevel} (${confidencePercent.toFixed(0)}%) - ${confidenceLogic}`, margin + 32, y);
-    y += 5;
-    
-    // AI INSTRUCTION line
-    pdf.setTextColor(50, 50, 50);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('AI INSTRUCTION:', margin + 3, y);
-    pdf.setFont('helvetica', 'italic');
-    const aiInstruction = confidencePercent >= 80 
-      ? 'Execute immediately and verify success.'
-      : confidencePercent >= 50
-        ? 'Verification Required: Confirm element matches live UI before clicking.'
-        : 'STOP: UI differs significantly. Ask human to clarify before proceeding.';
-    pdf.text(aiInstruction, margin + 38, y);
-    y += 5;
-    
-    // VALIDATION line
-    pdf.setFont('helvetica', 'bold');
-    pdf.text('VALIDATION:', margin + 3, y);
-    pdf.setFont('helvetica', 'normal');
-    const validationText = isValidationCheckpoint 
-      ? 'CHECKPOINT: Confirm expected outcome matches screen before proceeding.'
-      : isCritical 
-        ? 'Confirm with human before executing. Verify outcome after.'
-        : 'Verify the UI element exists as shown in screenshot.';
-    pdf.text(validationText, margin + 30, y);
-    y += 8;
-    
-    // Extra CRITICAL VALIDATION POINT warning
-    if (isValidationCheckpoint) {
-      pdf.setFillColor(255, 230, 230);
-      pdf.setDrawColor(200, 0, 0);
-      pdf.roundedRect(margin + 3, y, contentWidth - 6, 8, 1, 1, 'FD');
-      pdf.setFontSize(7);
+      const emphasisLabels = frameAnalysis ? getEmphasisLabels(frameAnalysis.emphasisFlags) : [];
+      const isKeyMoment = emphasisLabels.length > 0;
+      const textType = frameAnalysis?.textType || 'other';
+
+      // ===== TIMESTAMP BLOCK HEADER =====
+      if (isCritical) {
+        pdf.setFillColor(255, 230, 230);
+        pdf.setDrawColor(200, 0, 0);
+      } else if (isKeyMoment) {
+        pdf.setFillColor(255, 245, 220);
+        pdf.setDrawColor(200, 150, 0);
+      } else {
+        pdf.setFillColor(245, 245, 250);
+        pdf.setDrawColor(150, 150, 180);
+      }
+
+      pdf.setLineWidth(0.3);
+      pdf.roundedRect(margin, y, contentWidth, 12, 2, 2, 'FD');
+      pdf.setFontSize(11);
       pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(180, 0, 0);
-      pdf.text('>>> CRITICAL VALIDATION POINT: Confirm expected outcome before moving to next step <<<', margin + 6, y + 5.5);
-      y += 10;
-    }
-    
-    y += 3;
+      pdf.setTextColor(30, 30, 80);
 
-    // Emphasis flags row (if any)
-    if (emphasisLabels.length > 0) {
-      pdf.setFillColor(255, 255, 200);
-      pdf.roundedRect(margin, y, contentWidth, 8, 2, 2, 'F');
+      // Determine step description from OCR or intent
+      const actionDescription = frameAnalysis?.instructorIntent || frameAnalysis?.text?.substring(0, 50) || 'Observe screen state';
+
+      // Calculate confidence as High/Medium/Low
+      const confidencePercent = (frameAnalysis?.intentConfidence || 0.5) * 100;
+      const confidenceLevel = confidencePercent >= 80 ? 'High' : confidencePercent >= 50 ? 'Medium' : 'Low';
+      const confidenceLogic = confidencePercent >= 80 ? 'OCR matches UI perfectly' :
+        confidencePercent >= 50 ? 'UI match but some elements unclear' :
+          'UI differs from expected state';
+
+      // Determine if this is a validation checkpoint (success state detection)
+      const isValidationCheckpoint = isCritical ||
+        (frameAnalysis?.text?.toLowerCase().includes('success') ||
+          frameAnalysis?.text?.toLowerCase().includes('complete') ||
+          frameAnalysis?.text?.toLowerCase().includes('saved') ||
+          frameAnalysis?.text?.toLowerCase().includes('confirmed') ||
+          frameAnalysis?.keyElements?.some(e => e.toLowerCase().includes('confirmation')));
+
+      let headerText = `STEP ${i + 1}: ${formatTime(frameTime)} | ${getTextTypeLabel(textType)}`;
+      if (isValidationCheckpoint) headerText += ' | [VALIDATION CHECKPOINT]';
+      else if (isCritical) headerText += ' | >>> CRITICAL <<<';
+      else if (isKeyMoment) headerText += ' | [KEY MOMENT]';
+
+      pdf.text(headerText, margin + 3, y + 8);
+      y += 15;
+
+      // ===== PER-STEP VALIDATION METADATA BLOCK (ANTI-HALLUCINATION MVP) =====
+      const metadataHeight = 40 + (isValidationCheckpoint ? 10 : 0);
+
+      if (isCritical || isValidationCheckpoint) {
+        pdf.setFillColor(255, 240, 240);
+        pdf.setDrawColor(200, 50, 50);
+      } else if (confidenceLevel === 'High') {
+        pdf.setFillColor(240, 255, 240);
+        pdf.setDrawColor(50, 150, 50);
+      } else if (confidenceLevel === 'Medium') {
+        pdf.setFillColor(255, 250, 230);
+        pdf.setDrawColor(200, 150, 50);
+      } else {
+        pdf.setFillColor(255, 245, 245);
+        pdf.setDrawColor(200, 100, 100);
+      }
+
+      pdf.setLineWidth(0.5);
+      pdf.roundedRect(margin, y, contentWidth, metadataHeight, 2, 2, 'FD');
+      y += 5;
+
+      // ACTION line
       pdf.setFontSize(8);
       pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(100, 80, 0);
-      pdf.text(`Emphasis: ${emphasisLabels.join(' | ')}`, margin + 3, y + 5.5);
-      y += 10;
-    }
+      pdf.setTextColor(50, 50, 50);
+      pdf.text('ACTION:', margin + 3, y);
+      pdf.setFont('helvetica', 'normal');
+      const truncatedAction = actionDescription.length > 70 ? actionDescription.substring(0, 67) + '...' : actionDescription;
+      pdf.text(truncatedAction, margin + 22, y);
+      y += 5;
 
-    // Prosody annotation row (if any)
-    if (hasProsody && frameAnalysis?.prosody) {
-      const prosodyLabel = getProsodyLabel(frameAnalysis.prosody);
-      if (prosodyLabel) {
-        pdf.setFillColor(240, 230, 255);
-        pdf.roundedRect(margin, y, contentWidth, 8, 2, 2, 'F');
-        pdf.setFontSize(8);
-        pdf.setFont('helvetica', 'italic');
-        pdf.setTextColor(80, 50, 120);
-        pdf.text(`Prosody: ${prosodyLabel}`, margin + 3, y + 5.5);
+      // CONFIDENCE line
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('CONFIDENCE:', margin + 3, y);
+      pdf.setFont('helvetica', 'normal');
+      const confColor = confidenceLevel === 'High' ? { r: 0, g: 120, b: 50 } :
+        confidenceLevel === 'Medium' ? { r: 180, g: 120, b: 0 } :
+          { r: 180, g: 50, b: 50 };
+      pdf.setTextColor(confColor.r, confColor.g, confColor.b);
+      pdf.text(`${confidenceLevel} (${confidencePercent.toFixed(0)}%) - ${confidenceLogic}`, margin + 32, y);
+      y += 5;
+
+      // AI INSTRUCTION line
+      pdf.setTextColor(50, 50, 50);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('AI INSTRUCTION:', margin + 3, y);
+      pdf.setFont('helvetica', 'italic');
+      const aiInstruction = confidencePercent >= 80
+        ? 'Execute immediately and verify success.'
+        : confidencePercent >= 50
+          ? 'Verification Required: Confirm element matches live UI before clicking.'
+          : 'STOP: UI differs significantly. Ask human to clarify before proceeding.';
+      pdf.text(aiInstruction, margin + 38, y);
+      y += 5;
+
+      // VALIDATION line
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('VALIDATION:', margin + 3, y);
+      pdf.setFont('helvetica', 'normal');
+      const validationText = isValidationCheckpoint
+        ? 'CHECKPOINT: Confirm expected outcome matches screen before proceeding.'
+        : isCritical
+          ? 'Confirm with human before executing. Verify outcome after.'
+          : 'Verify the UI element exists as shown in screenshot.';
+      pdf.text(validationText, margin + 30, y);
+      y += 8;
+
+      // Extra CRITICAL VALIDATION POINT warning
+      if (isValidationCheckpoint) {
+        pdf.setFillColor(255, 230, 230);
+        pdf.setDrawColor(200, 0, 0);
+        pdf.roundedRect(margin + 3, y, contentWidth - 6, 8, 1, 1, 'FD');
+        pdf.setFontSize(7);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(180, 0, 0);
+        pdf.text('>>> CRITICAL VALIDATION POINT: Confirm expected outcome before moving to next step <<<', margin + 6, y + 5.5);
         y += 10;
       }
-    }
 
-    // NEW: Expert Instinct / Unspoken Nuance row
-    if (frameAnalysis?.unspokenNuance && frameAnalysis.unspokenNuance.description) {
-      const nuance = frameAnalysis.unspokenNuance;
-      const nuanceTypeLabels: Record<string, string> = {
-        'micro_hesitation': '⚠️ MICRO-HESITATION',
-        'decision_point': '🎯 DECISION POINT',
-        'expert_instinct': '💡 EXPERT INSTINCT',
-        'implicit_caution': '🛑 IMPLICIT CAUTION',
-        'muscle_memory': '⚡ MUSCLE MEMORY',
-      };
-      const typeLabel = nuanceTypeLabels[nuance.nuanceType] || '💭 NUANCE';
-      
-      pdf.setFillColor(255, 250, 235);
-      pdf.setDrawColor(200, 140, 50);
-      pdf.setLineWidth(0.3);
-      
-      const nuanceText = pdf.splitTextToSize(`${typeLabel}: ${nuance.description}`, contentWidth - 10);
-      const nuanceHeight = Math.min(nuanceText.length * 4.5, 25) + 6;
-      
-      pdf.roundedRect(margin, y, contentWidth, nuanceHeight, 2, 2, 'FD');
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'bolditalic');
-      pdf.setTextColor(150, 100, 20);
-      
-      let nuanceY = y + 5;
-      nuanceText.forEach((line: string) => {
-        pdf.text(line, margin + 3, nuanceY);
-        nuanceY += 4.5;
-      });
-      
-      y += nuanceHeight + 2;
-    }
+      y += 3;
 
-    // Inline audio annotations row
-    if (hasInlineAudio) {
-      pdf.setFillColor(255, 248, 240);
-      pdf.setDrawColor(200, 150, 100);
-      const audioAnnotationText = inlineAudioAnnotations.join(' ');
-      const splitAudioAnnotations = pdf.splitTextToSize(audioAnnotationText, contentWidth - 10);
-      const audioHeight = Math.min(splitAudioAnnotations.length * 4, 20) + 6;
-      
-      pdf.roundedRect(margin, y, contentWidth, audioHeight, 2, 2, 'FD');
-      y += 4;
-      pdf.setFontSize(8);
-      pdf.setFont('helvetica', 'italic');
-      pdf.setTextColor(150, 100, 50);
-      pdf.text(splitAudioAnnotations.slice(0, 4), margin + 3, y + 2);
-      y += audioHeight - 2;
-    }
+      // Emphasis flags row (if any)
+      if (emphasisLabels.length > 0) {
+        pdf.setFillColor(255, 255, 200);
+        pdf.roundedRect(margin, y, contentWidth, 8, 2, 2, 'F');
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(100, 80, 0);
+        pdf.text(`Emphasis: ${emphasisLabels.join(' | ')}`, margin + 3, y + 5.5);
+        y += 10;
+      }
 
-    // ===== FRAME IMAGE =====
-    try {
-      const base64Image = await imageToBase64Compressed(frameUrl, effectiveQuality);
-      if (base64Image && base64Image.length > 1000) {
-        const imgWidth = Math.min(70, contentWidth);
-        const imgHeight = 40;
-        // Preserve quality (avoid extra internal compression)
-        pdf.addImage(base64Image, 'JPEG', margin, y, imgWidth, imgHeight, undefined, 'NONE');
-        y += imgHeight + 3;
-      } else {
-        // Log which frame failed for debugging
-        console.warn(`[pdfExporter] Frame ${i + 1} failed to load: ${frameUrl.substring(0, 60)}...`);
-        pdf.setFillColor(245, 245, 245);
-        pdf.setDrawColor(200, 200, 200);
+      // Prosody annotation row (if any)
+      if (hasProsody && frameAnalysis?.prosody) {
+        const prosodyLabel = getProsodyLabel(frameAnalysis.prosody);
+        if (prosodyLabel) {
+          pdf.setFillColor(240, 230, 255);
+          pdf.roundedRect(margin, y, contentWidth, 8, 2, 2, 'F');
+          pdf.setFontSize(8);
+          pdf.setFont('helvetica', 'italic');
+          pdf.setTextColor(80, 50, 120);
+          pdf.text(`Prosody: ${prosodyLabel}`, margin + 3, y + 5.5);
+          y += 10;
+        }
+      }
+
+      // NEW: Expert Instinct / Unspoken Nuance row
+      if (frameAnalysis?.unspokenNuance && frameAnalysis.unspokenNuance.description) {
+        const nuance = frameAnalysis.unspokenNuance;
+        const nuanceTypeLabels: Record<string, string> = {
+          'micro_hesitation': '⚠️ MICRO-HESITATION',
+          'decision_point': '🎯 DECISION POINT',
+          'expert_instinct': '💡 EXPERT INSTINCT',
+          'implicit_caution': '🛑 IMPLICIT CAUTION',
+          'muscle_memory': '⚡ MUSCLE MEMORY',
+        };
+        const typeLabel = nuanceTypeLabels[nuance.nuanceType] || '💭 NUANCE';
+
+        pdf.setFillColor(255, 250, 235);
+        pdf.setDrawColor(200, 140, 50);
+        pdf.setLineWidth(0.3);
+
+        const nuanceText = pdf.splitTextToSize(`${typeLabel}: ${nuance.description}`, contentWidth - 10);
+        const nuanceHeight = Math.min(nuanceText.length * 4.5, 25) + 6;
+
+        pdf.roundedRect(margin, y, contentWidth, nuanceHeight, 2, 2, 'FD');
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'bolditalic');
+        pdf.setTextColor(150, 100, 20);
+
+        let nuanceY = y + 5;
+        nuanceText.forEach((line: string) => {
+          pdf.text(line, margin + 3, nuanceY);
+          nuanceY += 4.5;
+        });
+
+        y += nuanceHeight + 2;
+      }
+
+      // Inline audio annotations row
+      if (hasInlineAudio) {
+        pdf.setFillColor(255, 248, 240);
+        pdf.setDrawColor(200, 150, 100);
+        const audioAnnotationText = inlineAudioAnnotations.join(' ');
+        const splitAudioAnnotations = pdf.splitTextToSize(audioAnnotationText, contentWidth - 10);
+        const audioHeight = Math.min(splitAudioAnnotations.length * 4, 20) + 6;
+
+        pdf.roundedRect(margin, y, contentWidth, audioHeight, 2, 2, 'FD');
+        y += 4;
+        pdf.setFontSize(8);
+        pdf.setFont('helvetica', 'italic');
+        pdf.setTextColor(150, 100, 50);
+        pdf.text(splitAudioAnnotations.slice(0, 4), margin + 3, y + 2);
+        y += audioHeight - 2;
+      }
+
+      // ===== FRAME IMAGE =====
+      try {
+        const base64Image = await imageToBase64Compressed(frameUrl, effectiveQuality);
+        if (base64Image && base64Image.length > 1000) {
+          const imgWidth = Math.min(70, contentWidth);
+          const imgHeight = 40;
+          // Preserve quality (avoid extra internal compression)
+          pdf.addImage(base64Image, 'JPEG', margin, y, imgWidth, imgHeight, undefined, 'NONE');
+          y += imgHeight + 3;
+        } else {
+          // Log which frame failed for debugging
+          console.warn(`[pdfExporter] Frame ${i + 1} failed to load: ${frameUrl.substring(0, 60)}...`);
+          pdf.setFillColor(245, 245, 245);
+          pdf.setDrawColor(200, 200, 200);
+          pdf.roundedRect(margin, y, 70, 40, 2, 2, 'FD');
+          pdf.setFontSize(7);
+          pdf.setTextColor(150, 150, 150);
+          pdf.text(`[Frame ${i + 1} at ${formatTime(frameTime)}]`, margin + 5, y + 18);
+          pdf.text(`[Image unavailable - see transcript]`, margin + 5, y + 24);
+          y += 43;
+        }
+      } catch (error) {
+        console.error(`[pdfExporter] Frame ${i + 1} error:`, error);
+        pdf.setFillColor(255, 240, 240);
+        pdf.setDrawColor(200, 150, 150);
         pdf.roundedRect(margin, y, 70, 40, 2, 2, 'FD');
         pdf.setFontSize(7);
-        pdf.setTextColor(150, 150, 150);
-        pdf.text(`[Frame ${i + 1} at ${formatTime(frameTime)}]`, margin + 5, y + 18);
-        pdf.text(`[Image unavailable - see transcript]`, margin + 5, y + 24);
+        pdf.setTextColor(180, 100, 100);
+        pdf.text(`[Frame ${i + 1} error]`, margin + 5, y + 20);
         y += 43;
       }
-    } catch (error) {
-      console.error(`[pdfExporter] Frame ${i + 1} error:`, error);
-      pdf.setFillColor(255, 240, 240);
-      pdf.setDrawColor(200, 150, 150);
-      pdf.roundedRect(margin, y, 70, 40, 2, 2, 'FD');
-      pdf.setFontSize(7);
-      pdf.setTextColor(180, 100, 100);
-      pdf.text(`[Frame ${i + 1} error]`, margin + 5, y + 20);
-      y += 43;
-    }
 
-    // ===== OCR EXTRACTED TEXT =====
-    if (hasOCR && frameAnalysis) {
-      checkPageBreak(40);
-      
-      const hasHighlight = frameAnalysis.emphasisFlags.highlight_detected || frameAnalysis.emphasisFlags.text_selected;
-      
-      if (hasHighlight) {
-        pdf.setFillColor(255, 255, 200);
-        pdf.setDrawColor(200, 180, 0);
-      } else {
-        pdf.setFillColor(240, 248, 255);
-        pdf.setDrawColor(100, 150, 200);
+      // ===== OCR EXTRACTED TEXT =====
+      if (hasOCR && frameAnalysis) {
+        checkPageBreak(40);
+
+        const hasHighlight = frameAnalysis.emphasisFlags.highlight_detected || frameAnalysis.emphasisFlags.text_selected;
+
+        if (hasHighlight) {
+          pdf.setFillColor(255, 255, 200);
+          pdf.setDrawColor(200, 180, 0);
+        } else {
+          pdf.setFillColor(240, 248, 255);
+          pdf.setDrawColor(100, 150, 200);
+        }
+
+        const ocrText = frameAnalysis.text.substring(0, 600);
+        const splitOCR = pdf.splitTextToSize(ocrText, contentWidth - 10);
+        const ocrHeight = Math.min(splitOCR.length * 4, 40) + 12;
+
+        pdf.roundedRect(margin, y, contentWidth, ocrHeight, 2, 2, 'FD');
+
+        y += 6;
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(0, 80, 120);
+
+        let ocrLabel = 'OCR Extracted Text';
+        if (hasHighlight) ocrLabel = '*HIGHLIGHTED/SELECTED TEXT*';
+        pdf.text(ocrLabel, margin + 3, y);
+        y += 5;
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setTextColor(30, 30, 30);
+        const truncatedOCR = splitOCR.slice(0, 7);
+        pdf.text(truncatedOCR, margin + 3, y);
+        y += truncatedOCR.length * 4 + 6;
       }
-      
-      const ocrText = frameAnalysis.text.substring(0, 600);
-      const splitOCR = pdf.splitTextToSize(ocrText, contentWidth - 10);
-      const ocrHeight = Math.min(splitOCR.length * 4, 40) + 12;
-      
-      pdf.roundedRect(margin, y, contentWidth, ocrHeight, 2, 2, 'FD');
-      
-      y += 6;
+
+      // ===== INSTRUCTOR INTENT (ENHANCED WITH CONFIDENCE) =====
+      if (hasIntent && frameAnalysis) {
+        checkPageBreak(25);
+
+        const confColor = getConfidenceColor(frameAnalysis.intentSource);
+
+        pdf.setFillColor(230, 255, 230);
+        pdf.setDrawColor(0, 150, 50);
+        pdf.roundedRect(margin, y, contentWidth, 20, 2, 2, 'FD');
+
+        y += 5;
+        pdf.setFontSize(9);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(confColor.r, confColor.g, confColor.b);
+
+        const confLabel = getConfidenceLabel(frameAnalysis);
+        pdf.text(`Instructor Intent ${confLabel}:`, margin + 3, y);
+        y += 5;
+
+        pdf.setFont('helvetica', 'italic');
+        pdf.setTextColor(0, 80, 40);
+        const intentText = pdf.splitTextToSize(frameAnalysis.instructorIntent, contentWidth - 10);
+        pdf.text(intentText.slice(0, 2), margin + 3, y);
+        y += 12;
+      }
+
+      // ===== TRANSCRIPT WITH INLINE AUDIO =====
       pdf.setFontSize(9);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(0, 80, 120);
-      
-      let ocrLabel = 'OCR Extracted Text';
-      if (hasHighlight) ocrLabel = '*HIGHLIGHTED/SELECTED TEXT*';
-      pdf.text(ocrLabel, margin + 3, y);
-      y += 5;
-      
       pdf.setFont('helvetica', 'normal');
       pdf.setTextColor(30, 30, 30);
-      const truncatedOCR = splitOCR.slice(0, 7);
-      pdf.text(truncatedOCR, margin + 3, y);
-      y += truncatedOCR.length * 4 + 6;
-    }
 
-    // ===== INSTRUCTOR INTENT (ENHANCED WITH CONFIDENCE) =====
-    if (hasIntent && frameAnalysis) {
-      checkPageBreak(25);
-      
-      const confColor = getConfidenceColor(frameAnalysis.intentSource);
-      
-      pdf.setFillColor(230, 255, 230);
-      pdf.setDrawColor(0, 150, 50);
-      pdf.roundedRect(margin, y, contentWidth, 20, 2, 2, 'FD');
-      
-      y += 5;
-      pdf.setFontSize(9);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setTextColor(confColor.r, confColor.g, confColor.b);
-      
-      const confLabel = getConfidenceLabel(frameAnalysis);
-      pdf.text(`Instructor Intent ${confLabel}:`, margin + 3, y);
-      y += 5;
-      
-      pdf.setFont('helvetica', 'italic');
-      pdf.setTextColor(0, 80, 40);
-      const intentText = pdf.splitTextToSize(frameAnalysis.instructorIntent, contentWidth - 10);
-      pdf.text(intentText.slice(0, 2), margin + 3, y);
-      y += 12;
-    }
+      let fullSensoryTranscript = '';
+      if (inlineAudioAnnotations.length > 0) {
+        fullSensoryTranscript = `${inlineAudioAnnotations.join(' ')} `;
+      }
+      fullSensoryTranscript += `"${transcriptText}"`;
 
-    // ===== TRANSCRIPT WITH INLINE AUDIO =====
-    pdf.setFontSize(9);
-    pdf.setFont('helvetica', 'normal');
-    pdf.setTextColor(30, 30, 30);
-    
-    let fullSensoryTranscript = '';
-    if (inlineAudioAnnotations.length > 0) {
-      fullSensoryTranscript = `${inlineAudioAnnotations.join(' ')} `;
-    }
-    fullSensoryTranscript += `"${transcriptText}"`;
-    
-    const splitText = pdf.splitTextToSize(`Transcript: ${fullSensoryTranscript}`, contentWidth - 5);
-    const textHeight = Math.min(splitText.length, 4) * 4.5;
-    
-    checkPageBreak(textHeight + 15);
-    
-    if (inlineAudioAnnotations.length > 0) {
-      pdf.setFillColor(255, 252, 245);
-      pdf.setDrawColor(200, 180, 150);
-      pdf.roundedRect(margin, y, contentWidth, textHeight + 6, 2, 2, 'FD');
-    } else {
-      pdf.setFillColor(250, 250, 250);
-      pdf.roundedRect(margin, y, contentWidth, textHeight + 6, 2, 2, 'F');
-    }
-    pdf.text(splitText.slice(0, 4), margin + 3, y + 5);
-    y += textHeight + 15;
+      const splitText = pdf.splitTextToSize(`Transcript: ${fullSensoryTranscript}`, contentWidth - 5);
+      const textHeight = Math.min(splitText.length, 4) * 4.5;
+
+      checkPageBreak(textHeight + 15);
+
+      if (inlineAudioAnnotations.length > 0) {
+        pdf.setFillColor(255, 252, 245);
+        pdf.setDrawColor(200, 180, 150);
+        pdf.roundedRect(margin, y, contentWidth, textHeight + 6, 2, 2, 'FD');
+      } else {
+        pdf.setFillColor(250, 250, 250);
+        pdf.roundedRect(margin, y, contentWidth, textHeight + 6, 2, 2, 'F');
+      }
+      pdf.text(splitText.slice(0, 4), margin + 3, y + 5);
+      y += textHeight + 15;
     }
   } else {
     // No frames available - skip frame rendering but notify user
@@ -1743,18 +1934,18 @@ export const generateChatGPTPDF = async (
   // Optimized for high-volume (200+ files) with memory-safe processing
   const supplementalFiles = course.supplementalFiles || [];
   const fileCount = supplementalFiles.length;
-  
+
   if (fileCount > 0) {
     onProgress?.(85, `Embedding ${fileCount} supplementary documents...`);
     addPageWithHeaders();
-    
+
     // Section header
     pdf.setFontSize(18);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(0, 0, 0);
     pdf.text('SUPPLEMENTARY TRAINING DOCUMENTS', margin, y);
     y += 8;
-    
+
     pdf.setFontSize(10);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(80, 80, 80);
@@ -1762,68 +1953,68 @@ export const generateChatGPTPDF = async (
     const introLines = pdf.splitTextToSize(supplementIntro, contentWidth);
     pdf.text(introLines, margin, y);
     y += introLines.length * 5 + 10;
-    
+
     // For large file counts, truncate content more aggressively to prevent memory issues
     const maxContentPerFile = fileCount > 200 ? 5000 : fileCount > 100 ? 8000 : 10000;
-    
+
     // Process each supplemental file with memory-efficient approach
     for (let fileIndex = 0; fileIndex < fileCount; fileIndex++) {
       const file = supplementalFiles[fileIndex];
-      
+
       // Update progress every 10 files for responsiveness without UI thrashing
       if (fileIndex % 10 === 0 || fileIndex === fileCount - 1) {
         const percentComplete = (fileIndex + 1) / fileCount;
         onProgress?.(85 + percentComplete * 7, `Adding file ${fileIndex + 1}/${fileCount}...`);
       }
-      
+
       checkPageBreak(35);
-      
+
       // File header with index for easy reference
       pdf.setFillColor(240, 248, 255);
       pdf.setDrawColor(100, 149, 237);
       pdf.roundedRect(margin, y, contentWidth, 10, 2, 2, 'FD');
-      
+
       pdf.setFontSize(10);
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(25, 25, 112);
       pdf.text(`[${fileIndex + 1}/${supplementalFiles.length}] ${file.name}`, margin + 3, y + 7);
       y += 14;
-      
+
       // File content
       if (file.content && file.content.trim().length > 0) {
         pdf.setFontSize(9);
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(30, 30, 30);
-        
+
         // Split content into chunks that fit on pages
         // Adaptive truncation based on total file count to prevent memory issues
-        const contentToShow = file.content.length > maxContentPerFile 
+        const contentToShow = file.content.length > maxContentPerFile
           ? file.content.substring(0, maxContentPerFile) + `\n\n[... Content truncated at ${maxContentPerFile} chars. Full file: ${file.content.length} chars ...]`
           : file.content;
-        
+
         const contentLines = pdf.splitTextToSize(contentToShow, contentWidth - 6);
-        
+
         // Render content in chunks to handle page breaks
         let lineIndex = 0;
         while (lineIndex < contentLines.length) {
           const availableHeight = pageHeight - y - margin - 15;
           const linesPerPage = Math.floor(availableHeight / 4.5);
           const linesToRender = contentLines.slice(lineIndex, lineIndex + linesPerPage);
-          
+
           if (linesToRender.length === 0) {
             addPageWithHeaders();
             continue;
           }
-          
+
           // Background for content block
           const blockHeight = linesToRender.length * 4.5 + 6;
           pdf.setFillColor(252, 252, 252);
           pdf.roundedRect(margin, y, contentWidth, blockHeight, 2, 2, 'F');
-          
+
           pdf.text(linesToRender, margin + 3, y + 5);
           y += blockHeight + 3;
           lineIndex += linesPerPage;
-          
+
           if (lineIndex < contentLines.length) {
             addPageWithHeaders();
           }
@@ -1835,10 +2026,10 @@ export const generateChatGPTPDF = async (
         pdf.text('[No text content could be extracted from this file]', margin + 3, y);
         y += 10;
       }
-      
+
       y += 8; // Space between files
     }
-    
+
     // Summary after all supplemental files
     checkPageBreak(20);
     pdf.setFontSize(9);
@@ -1872,7 +2063,7 @@ export const generateChatGPTPDF = async (
   pdf.setFontSize(9);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(30, 60, 30);
-  
+
   const prompts = [
     '1. "Give me a step-by-step SOP focusing on [EXPLICIT] and [STRONG] intent."',
     '',
@@ -1890,7 +2081,7 @@ export const generateChatGPTPDF = async (
     '',
     '8. "Interpret the prosody tags - what tone should my VA use?"',
   ];
-  
+
   prompts.forEach(line => {
     pdf.text(line, margin + 5, y);
     y += 5.5;
@@ -1900,12 +2091,12 @@ export const generateChatGPTPDF = async (
 
   // Summary with enhanced metrics
   const ocrFrames2 = frameAnalyses.filter(f => f !== null).length;
-  
+
   if (includeOCR) {
     pdf.setFillColor(240, 240, 255);
     pdf.setDrawColor(100, 100, 200);
     pdf.roundedRect(margin, y, contentWidth, 45, 3, 3, 'FD');
-    
+
     y += 8;
     pdf.setFontSize(10);
     pdf.setFont('helvetica', 'bold');
@@ -1926,7 +2117,7 @@ export const generateChatGPTPDF = async (
   }
 
   onProgress?.(100, 'PDF generation complete!');
-  
+
   return pdf.output('blob');
 };
 
@@ -1956,10 +2147,10 @@ export const generateMergedCoursePDF = async (
 
   // IMPORTANT: default imageQuality must be high; we cap it per-module based on frame count.
   const { maxFrames = 50, imageQuality = 1.0 } = options;
-  
+
   const watermarkEmail = safe(mergedCourse.userEmail || localStorage.getItem('courseagent_email') || '');
   const watermarkTimestamp = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
-  
+
   const pdf = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -2004,58 +2195,186 @@ export const generateMergedCoursePDF = async (
     addWatermark();
   };
 
-  // ========== COVER PAGE ==========
-  onProgress?.(2, 'Creating cover page...');
+  // ========== GLOBAL PAGE 0: MANDATORY FIRST RESPONSE ==========
+  onProgress?.(2, 'Creating Global Course Game Protocol page...');
+
+  // Dynamic short title for protocol
+  const shortTitle = safe(mergedCourse.title?.substring(0, 30) || 'this course');
   addWatermark();
-  
+
+  // ===== MANDATORY GREETING HEADER =====
+  pdf.setFontSize(16);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(200, 0, 0);
+  pdf.text('=== MANDATORY FIRST RESPONSE ===', margin, y);
+  y += 8;
+
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setTextColor(0, 0, 0);
+  pdf.text('AI: When this document is uploaded, you MUST respond with EXACTLY this:', margin, y);
+  y += 10;
+
+  // Greeting box
+  pdf.setFillColor(230, 250, 230);
+  pdf.setDrawColor(0, 150, 0);
+  pdf.setLineWidth(0.8);
+  pdf.roundedRect(margin, y, contentWidth, 45, 3, 3, 'FD');
+  y += 6;
+
+  pdf.setFontSize(11);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(0, 100, 50);
+  pdf.text('[JOYSTICK] Welcome to the game of getting it done.', margin + 5, y);
+  y += 6;
+  pdf.setFont('helvetica', 'normal');
+  pdf.text(`I am your guided playback system for the full course: ${shortTitle}.`, margin + 5, y);
+  y += 8;
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('Did you watch this video series already?', margin + 5, y);
+  y += 6;
+  pdf.setTextColor(0, 150, 0);
+  pdf.text('  [PLAY] YES - I watched it, help me implement', margin + 5, y);
+  y += 5;
+  pdf.setTextColor(200, 100, 0);
+  pdf.text('  [PAUSE] NO - I have not watched it yet', margin + 5, y);
+  y += 5;
+  pdf.setTextColor(100, 100, 100);
+  pdf.setFontSize(9);
+  pdf.text('  (press [BOOK] anytime for library knowledge mode)', margin + 5, y);
+  y += 12;
+
+  // STOP AND WAIT instruction
+  pdf.setFillColor(255, 235, 235);
+  pdf.setDrawColor(200, 0, 0);
+  pdf.roundedRect(margin, y, contentWidth, 12, 2, 2, 'FD');
+  y += 8;
+  pdf.setFontSize(11);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(180, 0, 0);
+  pdf.text('>>> STOP and WAIT for the user to answer YES or NO before continuing. <<<', margin + 5, y);
+  y += 12;
+
+  // ===== IF YES BRANCH =====
+  pdf.setFontSize(11);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(0, 150, 0);
+  pdf.text('IF USER SAYS YES:', margin, y);
+  y += 6;
+
+  pdf.setFontSize(9);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setTextColor(0, 0, 0);
+  pdf.text('1. Ask: "Perfect - you have the context. What is your vision / what business are you building?"', margin + 3, y);
+  y += 5;
+  pdf.text('2. After they answer, show the Executive Boardroom:', margin + 3, y);
+  y += 8;
+
+  // Executive Board box
+  pdf.setFillColor(240, 245, 255);
+  pdf.setDrawColor(0, 100, 200);
+  pdf.roundedRect(margin + 5, y, contentWidth - 10, 48, 2, 2, 'FD');
+  y += 6;
+
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(0, 80, 150);
+  pdf.text('My Executive Board is standing by:', margin + 10, y);
+  y += 6;
+  pdf.setFontSize(9);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setTextColor(50, 50, 50);
+  pdf.text('[SCALES][MONOCLE] Governor: Monitoring for risks and "Translation Tax."', margin + 12, y);
+  y += 5;
+  pdf.text('[WRENCH][GEAR] Engineer: Validating 3 FPS forensic logic.', margin + 12, y);
+  y += 5;
+  pdf.text('[BUILDING][SUNGLASSES] Architect: Mapping this to your empire.', margin + 12, y);
+  y += 6;
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('Your remote is active:', margin + 10, y);
+  y += 5;
+  pdf.setFont('helvetica', 'normal');
+  pdf.text('[PLAY] GO | [TIMER] GPS | [FORWARD] >> | [BACK] << | [TARGET] DO', margin + 12, y);
+  y += 6;
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(150, 100, 0);
+  pdf.text('Judge [HAMMER][CROWN], what is your first command?', margin + 10, y);
+  y += 15;
+
+  // ========== GLOBAL PAGE 1: COURSE COVER PAGE ==========
+  addPageWithHeaders();
+  onProgress?.(5, 'Creating Global Title Page...');
+
   // Title
   pdf.setFontSize(28);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 0, 0);
   const titleLines = pdf.splitTextToSize(safe(mergedCourse.title), contentWidth);
-  pdf.text(titleLines, pageWidth / 2, 60, { align: 'center' });
-  
-  y = 80 + (titleLines.length * 12);
-  
+  pdf.text(titleLines, margin, y + 20);
+
+  y = 60 + (titleLines.length * 12);
+
   // Subtitle
   pdf.setFontSize(14);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(80, 80, 80);
-  pdf.text(safe('Merged Course OneDuo'), pageWidth / 2, y, { align: 'center' });
-  y += 20;
-  
+  pdf.text(safe('MASTER COURSE ORIGIN LOG - ONE DUO ORIGIN'), margin, y);
+  y += 15;
+
   // Chapter count
   pdf.setFontSize(12);
   pdf.setTextColor(100, 100, 100);
-  pdf.text(safe(`${mergedCourse.modules.length} Chapters`), pageWidth / 2, y, { align: 'center' });
-  y += 30;
-  
+  pdf.text(safe(`${mergedCourse.modules.length} Chapters (Modules) | Verbatim Transcripts Included`), margin, y);
+  y += 8;
+
   // Total duration
   const totalDuration = mergedCourse.modules.reduce((sum, m) => sum + (m.video_duration_seconds || 0), 0);
   if (totalDuration > 0) {
-    pdf.text(safe(`Total Duration: ${formatTime(totalDuration)}`), pageWidth / 2, y, { align: 'center' });
+    pdf.text(safe(`Total Duration: ${formatTime(totalDuration)}`), margin, y);
+    y += 15;
   }
 
-  // ========== TABLE OF CONTENTS (placeholder - will update page numbers after generating chapters) ==========
+  pdf.setFontSize(18);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(0, 0, 0);
+  pdf.text('MASTER PDF FORMAT FOR AI', margin, y);
+  y += 12;
+
+  pdf.setFontSize(10);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setTextColor(50, 50, 50);
+  pdf.text('1. Full Verbatim Transcripts (Monospace) for ALL modules', margin + 3, y);
+  y += 6;
+  pdf.text('2. Intelligence Layers (Key Moments, Concepts, Actionable Steps, Hidden Patterns)', margin + 3, y);
+  y += 6;
+  pdf.text('3. Multi-Module Contextual Integration', margin + 3, y);
+  y += 15;
+
+  pdf.setFontSize(8);
+  pdf.setTextColor(150, 150, 150);
+  const globalLegalText = pdf.splitTextToSize(LEGAL_FOOTER, contentWidth);
+  pdf.text(globalLegalText, margin, y);
+  y += 20;
+
+  // ========== TABLE OF CONTENTS ==========
   addPageWithHeaders();
   const tocPageNumber = currentPage;
-  
+
   pdf.setFontSize(22);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 0, 0);
   pdf.text(safe('Table of Contents'), margin, y);
   y += 15;
-  
+
   // We'll generate TOC entries after we know the page numbers
-  // For now, reserve space and continue
   const tocStartY = y;
-  
+
   // ========== GENERATE EACH CHAPTER ==========
   for (let i = 0; i < mergedCourse.modules.length; i++) {
     const module = mergedCourse.modules[i];
     const progressPercent = 10 + (i / mergedCourse.modules.length) * 80;
     onProgress?.(progressPercent, `Generating Chapter ${i + 1}: ${module.title}...`);
-    
+
     // Start new page for chapter
     addPageWithHeaders();
     chapterPages.push({
@@ -2063,17 +2382,17 @@ export const generateMergedCoursePDF = async (
       pageNumber: currentPage,
       moduleNumber: module.moduleNumber
     });
-    
+
     // Chapter header
     pdf.setFillColor(0, 180, 255);
     pdf.rect(margin, y, contentWidth, 20, 'F');
-    
+
     pdf.setFontSize(18);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(255, 255, 255);
     pdf.text(safe(`Chapter ${module.moduleNumber}: ${module.title}`), margin + 5, y + 13);
     y += 28;
-    
+
     // Chapter duration
     if (module.video_duration_seconds) {
       pdf.setFontSize(10);
@@ -2082,63 +2401,136 @@ export const generateMergedCoursePDF = async (
       pdf.text(safe(`Duration: ${formatTime(module.video_duration_seconds)}`), margin, y);
       y += 10;
     }
-    
-    // ========== TRANSCRIPT SECTION ==========
+
+    // ========== INTELLIGENCE LAYERS (A-D) ==========
+
+    // Layer A: Key Moments
+    if (module.key_moments_index && module.key_moments_index.length > 0) {
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(0, 0, 0);
+      pdf.text(safe('Layer A: Key Moments Index'), margin, y);
+      y += 8;
+      pdf.setFontSize(9);
+      pdf.setFont('helvetica', 'normal');
+      module.key_moments_index.forEach((m) => {
+        if (y > pageHeight - 20) addPageWithHeaders();
+        pdf.text(safe(`[${m.timestamp || '--:--'}] - ${m.description}`), margin + 5, y);
+        y += 6;
+      });
+      y += 10;
+    }
+
+    // Layer B: Concepts & Frameworks
+    if (module.concepts_frameworks && module.concepts_frameworks.length > 0) {
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(safe('Layer B: Concepts & Frameworks'), margin, y);
+      y += 8;
+      pdf.setFontSize(9);
+      module.concepts_frameworks.forEach((c) => {
+        if (y > pageHeight - 30) addPageWithHeaders();
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(safe(`* ${c.title || 'Concept'}`), margin + 5, y);
+        y += 5;
+        pdf.setFont('helvetica', 'normal');
+        const descLines = pdf.splitTextToSize(safe(c.description), contentWidth - 15);
+        pdf.text(descLines, margin + 10, y);
+        y += (descLines.length * 4) + 5;
+      });
+      y += 10;
+    }
+
+    // Layer C: Actionable Steps
+    if (module.implementation_steps && module.implementation_steps.length > 0) {
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(safe('Layer C: Actionable Steps'), margin, y);
+      y += 8;
+      pdf.setFontSize(9);
+      pdf.setFont('helvetica', 'normal');
+      module.implementation_steps.forEach((s, idx) => {
+        if (y > pageHeight - 20) addPageWithHeaders();
+        pdf.text(safe(`${s.step_number || idx + 1}. ${s.step_title || s.description}`), margin + 5, y);
+        y += 6;
+      });
+      y += 10;
+    }
+
+    // Layer D: Hidden Patterns
+    if (module.hidden_patterns && module.hidden_patterns.length > 0) {
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(safe('Layer D: Hidden Patterns & Insights'), margin, y);
+      y += 8;
+      pdf.setFontSize(9);
+      module.hidden_patterns.forEach((p) => {
+        if (y > pageHeight - 30) addPageWithHeaders();
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(safe(`* ${p.title || 'Pattern'}`), margin + 5, y);
+        y += 5;
+        pdf.setFont('helvetica', 'normal');
+        const descLines = pdf.splitTextToSize(safe(p.description), contentWidth - 15);
+        pdf.text(descLines, margin + 10, y);
+        y += (descLines.length * 4) + 5;
+      });
+      y += 10;
+    }
+
+    // ========== TRANSCRIPT SECTION (MONOSPACE) ==========
     if (module.transcript && module.transcript.length > 0) {
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(0, 0, 0);
-      pdf.text(safe('Transcript'), margin, y);
+      pdf.text(safe('Full Verbatim Transcript'), margin, y);
       y += 8;
-      
-      pdf.setFontSize(9);
-      pdf.setFont('helvetica', 'normal');
+
+      pdf.setFont('courier', 'normal');
+      pdf.setFontSize(8);
       pdf.setTextColor(30, 30, 30);
-      
-      // Take first ~50 segments to avoid oversized PDFs
-      const transcriptSegments = module.transcript.slice(0, 50);
+
+      // Take first ~100 segments for merged PDFs (increased from 50)
+      const transcriptSegments = module.transcript.slice(0, 100);
       for (const segment of transcriptSegments) {
-        if (y > pageHeight - 30) {
+        if (y > pageHeight - 20) {
           addPageWithHeaders();
+          pdf.setFont('courier', 'normal');
+          pdf.setFontSize(8);
         }
-        
-        const timestamp = safe(`[${formatTime(segment.start)}]`);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setTextColor(100, 100, 100);
-        pdf.text(timestamp, margin, y);
-        
-        pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(30, 30, 30);
-        const textLines = pdf.splitTextToSize(safe(segment.text), contentWidth - 25);
-        pdf.text(textLines, margin + 20, y);
-        y += textLines.length * 4 + 3;
+
+        const timestamp = safe(`[${formatTime(segment.start || 0)}]`);
+        const text = safe(`${segment.speaker ? `${segment.speaker}: ` : ''}${segment.text}`);
+        const line = `${timestamp} ${text}`;
+        const textLines = pdf.splitTextToSize(line, contentWidth);
+        pdf.text(textLines, margin, y);
+        y += textLines.length * 4 + 1;
       }
-      
-      if (module.transcript.length > 50) {
-        pdf.setFont('helvetica', 'italic');
+
+      if (module.transcript.length > 100) {
+        pdf.setFont('courier', 'italic');
         pdf.setTextColor(100, 100, 100);
-        pdf.text(safe(`[... ${module.transcript.length - 50} more segments in full transcript]`), margin, y);
+        pdf.text(safe(`[... ${module.transcript.length - 100} more segments truncated for PDF size]`), margin, y);
         y += 10;
       }
-      
+
       y += 10;
     }
-    
+
     // ========== VISUAL FRAMES SECTION ==========
     if (module.frame_urls && module.frame_urls.length > 0) {
       if (y > pageHeight - 50) {
         addPageWithHeaders();
       }
-      
+
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(0, 0, 0);
       pdf.text(safe('Visual Frames'), margin, y);
       y += 10;
-      
+
       // Sample frames evenly
       const sampledFrames = sampleFramesEvenly(module.frame_urls, Math.min(maxFrames, module.frame_urls.length));
-      
+
       // Cap quality for huge frame sets, but keep it high enough for UI legibility.
       const moduleRecommendedQuality = getRecommendedImageQuality(module.frame_urls.length);
       const moduleEffectiveQuality = Math.min(imageQuality, moduleRecommendedQuality);
@@ -2147,28 +2539,28 @@ export const generateMergedCoursePDF = async (
         if (y > pageHeight - 60) {
           addPageWithHeaders();
         }
-        
+
         const frameUrl = sampledFrames[frameIdx];
-        const timestamp = module.video_duration_seconds 
-          ? (frameIdx / sampledFrames.length) * module.video_duration_seconds 
+        const timestamp = module.video_duration_seconds
+          ? (frameIdx / sampledFrames.length) * module.video_duration_seconds
           : frameIdx;
-        
+
         pdf.setFontSize(8);
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(100, 100, 100);
         pdf.text(safe(`Frame ${frameIdx + 1} | ${formatTime(timestamp)}`), margin, y);
         y += 5;
-        
+
         try {
           const imgData = await imageToBase64WithRetry(frameUrl, moduleEffectiveQuality, 2, 8000);
           if (imgData.dataUrl) {
             const imgWidth = Math.min(contentWidth, 160);
             const imgHeight = imgWidth * 0.56; // 16:9 aspect ratio
-            
+
             if (y + imgHeight > pageHeight - 20) {
               addPageWithHeaders();
             }
-            
+
             pdf.addImage(imgData.dataUrl, 'JPEG', margin, y, imgWidth, imgHeight, undefined, 'NONE');
             y += imgHeight + 8;
           }
@@ -2180,7 +2572,7 @@ export const generateMergedCoursePDF = async (
         }
       }
     }
-    
+
     // Chapter separator
     y += 10;
     if (i < mergedCourse.modules.length - 1) {
@@ -2194,18 +2586,18 @@ export const generateMergedCoursePDF = async (
   // This embeds all user-uploaded files so ChatGPT can search their content
   const supplementalFiles = mergedCourse.supplementalFiles || [];
   const fileCount = supplementalFiles.length;
-  
+
   if (fileCount > 0) {
     onProgress?.(88, `Embedding ${fileCount} supplementary documents...`);
     addPageWithHeaders();
-    
+
     // Section header
     pdf.setFontSize(18);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(0, 0, 0);
     pdf.text(safe('SUPPLEMENTARY TRAINING DOCUMENTS'), margin, y);
     y += 8;
-    
+
     pdf.setFontSize(10);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(80, 80, 80);
@@ -2213,62 +2605,62 @@ export const generateMergedCoursePDF = async (
     const introLines = pdf.splitTextToSize(safe(supplementIntro), contentWidth);
     pdf.text(introLines, margin, y);
     y += introLines.length * 5 + 10;
-    
+
     // Process each supplemental file
     const maxContentPerFile = fileCount > 100 ? 8000 : 10000;
-    
+
     for (let fileIndex = 0; fileIndex < fileCount; fileIndex++) {
       const file = supplementalFiles[fileIndex];
-      
+
       // Check if we need a new page
       if (y > pageHeight - 40) {
         addPageWithHeaders();
       }
-      
+
       // File header
       pdf.setFillColor(240, 248, 255);
       pdf.setDrawColor(100, 149, 237);
       pdf.roundedRect(margin, y, contentWidth, 10, 2, 2, 'FD');
-      
+
       pdf.setFontSize(10);
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(25, 25, 112);
       pdf.text(safe(`[${fileIndex + 1}/${fileCount}] ${file.name}`), margin + 3, y + 7);
       y += 14;
-      
+
       // File content
       if (file.content && file.content.trim().length > 0) {
         pdf.setFontSize(9);
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(30, 30, 30);
-        
+
         const rawContent = safe(file.content);
-        const contentToShow = rawContent.length > maxContentPerFile 
+        const contentToShow = rawContent.length > maxContentPerFile
           ? rawContent.substring(0, maxContentPerFile) + safe(`\n\n[... Content truncated at ${maxContentPerFile} chars. Full file: ${rawContent.length} chars ...]`)
           : rawContent;
-        
+
         const contentLines = pdf.splitTextToSize(contentToShow, contentWidth - 6);
-        
+
         // Render content in chunks to handle page breaks
         let lineIndex = 0;
         while (lineIndex < contentLines.length) {
           const availableHeight = pageHeight - y - margin - 15;
           const linesPerPage = Math.floor(availableHeight / 4.5);
           const linesToRender = contentLines.slice(lineIndex, lineIndex + linesPerPage);
-          
+
           if (linesToRender.length === 0) {
             addPageWithHeaders();
             continue;
           }
-          
+
           const blockHeight = linesToRender.length * 4.5 + 6;
           pdf.setFillColor(252, 252, 252);
           pdf.roundedRect(margin, y, contentWidth, blockHeight, 2, 2, 'F');
-          
+
           pdf.text(linesToRender, margin + 3, y + 5);
           y += blockHeight + 3;
           lineIndex += linesPerPage;
-          
+
           if (lineIndex < contentLines.length) {
             addPageWithHeaders();
           }
@@ -2280,10 +2672,10 @@ export const generateMergedCoursePDF = async (
         pdf.text(safe('[No text content could be extracted from this file]'), margin + 3, y);
         y += 10;
       }
-      
+
       y += 8;
     }
-    
+
     // Summary
     if (y > pageHeight - 30) {
       addPageWithHeaders();
@@ -2297,47 +2689,47 @@ export const generateMergedCoursePDF = async (
 
   // ========== UPDATE TOC WITH ACTUAL PAGE NUMBERS ==========
   onProgress?.(92, 'Updating table of contents...');
-  
+
   // Go back to TOC page and fill in the entries
   pdf.setPage(tocPageNumber);
   y = tocStartY;
-  
+
   for (const chapter of chapterPages) {
     if (y > pageHeight - 25) {
       // If TOC spans multiple pages, we'd need more complex logic
       // For now, just continue on same page with smaller text
       pdf.setFontSize(9);
     }
-    
+
     pdf.setFontSize(11);
     pdf.setFont('helvetica', 'normal');
     pdf.setTextColor(0, 0, 0);
-    
+
     // Chapter title (left-aligned)
     const chapterTitle = `Chapter ${chapter.moduleNumber}: ${chapter.title}`;
     const safeChapterTitle = safe(chapterTitle);
     const truncatedTitle = safeChapterTitle.length > 60 ? safeChapterTitle.substring(0, 57) + '...' : safeChapterTitle;
     pdf.text(truncatedTitle, margin, y);
-    
+
     // Page number (right-aligned)
     pdf.setFont('helvetica', 'bold');
     pdf.text(String(chapter.pageNumber), pageWidth - margin, y, { align: 'right' });
-    
+
     // Dotted leader line
     pdf.setDrawColor(180, 180, 180);
     const titleWidth = pdf.getTextWidth(truncatedTitle);
     const pageNumWidth = pdf.getTextWidth(String(chapter.pageNumber));
     const lineStartX = margin + titleWidth + 5;
     const lineEndX = pageWidth - margin - pageNumWidth - 5;
-    
+
     for (let dotX = lineStartX; dotX < lineEndX; dotX += 3) {
       pdf.circle(dotX, y - 1, 0.3, 'F');
     }
-    
+
     y += 8;
   }
 
   onProgress?.(100, 'Merged PDF generation complete!');
-  
+
   return pdf.output('blob');
 };

@@ -50,6 +50,29 @@ interface ExtractedStep {
   }[];
 }
 
+interface IntelligenceLayers {
+  key_moments_index: {
+    timestamp: string;
+    description: string;
+    importance: 'high' | 'medium' | 'low';
+  }[];
+  concepts_frameworks: {
+    title: string;
+    description: string;
+    application: string;
+  }[];
+  hidden_patterns: {
+    title: string;
+    description: string;
+    insight_type: 'persuasion' | 'psychology' | 'efficiency' | 'strategy';
+  }[];
+}
+
+interface ExtractedData {
+  steps: ExtractedStep[];
+  intelligence_layers: IntelligenceLayers;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -100,12 +123,12 @@ serve(async (req) => {
       .gte("confidence_score", 0.5) // Only consider medium+ confidence
       .order("frame_index", { ascending: true });
 
-    if (framesError || !frames || frames.length === 0) {
+    if (framesError || !frames) {
       return new Response(JSON.stringify({
         success: false,
-        error: 'No frames found for artifact'
+        error: 'Error fetching frames'
       }), {
-        status: 404,
+        status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
@@ -129,92 +152,75 @@ serve(async (req) => {
 
     const extractionPrompt = `You are ONEDUO — an execution intelligence system.
 
-Your job is to transform unstructured content into structured, actionable systems that can be immediately implemented.
+Your job is to transform unstructured content into structured, actionable systems and deep intelligence layers.
 
-For every video analysis you must:
-- Extract executable workflows (step-by-step processes that can be followed or automated)
-- Identify decision logic (if this → then that rules)
-- Convert knowledge into build-ready instructions
-- Surface reusable frameworks, templates, and repeatable patterns
+### TASK 1: ACTIONABLE STEPS (Layer C)
+Extract a structured implementation sequence. For each step:
+1. Title: Clear action verb + specific target
+2. Description: Exact instructions with specific UI elements, values, or patterns
+3. Timing: Provide timestamp ranges [MM:SS] and reference frame indices
+4. Dependencies: Logic-based order (if X then Y)
+5. Constraints: Warnings, prerequisites, and validations
 
-Always organize analysis into:
-1. **Workflow** - The step-by-step execution path
-2. **Automation Opportunities** - What can be systematized
-3. **Build Instructions** - Implementation-ready details
-4. **Key Logic & Rules** - The if/then decision trees
-5. **Reusable Assets** - Templates, frameworks, patterns
+### TASK 2: KEY MOMENTS INDEX (Layer A)
+Identify the most significant "anchor points" in the video.
+- Timestamp: [MM:SS]
+- Description: What makes this moment critical (e.g., "The fundamental pivot", "Decision point for X")
+- Importance: high/medium/low
 
-**DO NOT summarize. DO NOT paraphrase for understanding only.**
-Your goal is **speed to implementation**.
+### TASK 3: CONCEPTS & FRAMEWORKS (Layer B)
+Extract formal models, strategies, or repeatable ideas presented.
+- Title: Name of the concept
+- Description: Detailed breakdown of how the model works
+- Application: How the user can apply this outside of this specific context
+
+### TASK 4: HIDDEN PATTERNS & INSIGHTS (Layer D)
+Analyze the "subtext" and advanced strategies.
+- Title: The insight/pattern name
+- Description: How they are using persuasion, psychological triggers, or structural efficiency
+- Insight Type: persuasion/psychology/efficiency/strategy
 
 ---
 
 VIDEO TITLE: ${artifact.video_title || 'Untitled'}
 DURATION: ${artifact.duration_seconds || 0} seconds
-TOTAL FRAMES: ${frames.length}
 
-FRAME DATA (index, timestamp_ms, detected_text, confidence, is_critical):
+FRAME DATA (index, timestamp_ms, detected_text):
 ${JSON.stringify(frameContext, null, 2)}
 
-TASK: Extract a structured implementation sequence. For each step:
-
-1. STEP IDENTIFICATION
-   - Title: Clear action verb + specific target (e.g., "Click Settings Button", "Enter API Key in Field")
-   - Description: Exact instructions with specific UI elements, values, or patterns
-   - Timing: Which frame(s) show this step
-
-2. DEPENDENCIES (if X → then Y)
-   - Which steps MUST be completed before this one?
-   - Are there conditional dependencies? (e.g., "Only if using OAuth")
-   - Classify as: prerequisite (must do first), conditional (if-then), blocking (hard requirement), recommended (best practice)
-
-3. CONSTRAINTS & GOTCHAS
-   - Prerequisites: What must exist before this step?
-   - Warnings: Common mistakes or gotchas
-   - Exceptions: Edge cases or alternative paths
-   - Timing: Must complete within specific time?
-   - Environment: Requires specific setup?
-   - Validation: How to verify completion?
-
-Return a JSON array of steps with this exact structure:
+Return a JSON object with this exact structure:
 {
   "steps": [
     {
       "step_number": 1,
-      "step_title": "Action + Target",
-      "step_description": "Detailed instructions",
+      "step_title": "...",
+      "step_description": "...",
       "source_frame_index": 0,
       "timestamp_start_ms": 0,
       "timestamp_end_ms": 3000,
-      "extraction_confidence": 0.85,
-      "dependencies": [
-        {
-          "prerequisite_step_number": 0,
-          "dependency_type": "prerequisite",
-          "condition_description": "Must complete login first"
-        }
-      ],
-      "constraints": [
-        {
-          "constraint_type": "warning",
-          "constraint_title": "Case-sensitive field",
-          "constraint_description": "API key is case-sensitive, copy exactly",
-          "severity": "warning",
-          "source_text": "Enter your API key"
-        }
-      ]
+      "extraction_confidence": 0.9,
+      "dependencies": [],
+      "constraints": []
     }
-  ]
+  ],
+  "intelligence_layers": {
+    "key_moments_index": [
+      { "timestamp": "02:15", "description": "...", "importance": "high" }
+    ],
+    "concepts_frameworks": [
+      { "title": "...", "description": "...", "application": "..." }
+    ],
+    "hidden_patterns": [
+      { "title": "...", "description": "...", "insight_type": "strategy" }
+    ]
+  }
 }
 
 RULES:
-- Extract ONLY steps that are clearly demonstrated in the frames
-- Do NOT invent steps not shown in the video
-- Be specific about UI elements (buttons, fields, menus)
-- Include timing anchors to specific frames
-- Mark critical/blocking steps appropriately
-- Identify ALL gotchas and exceptions mentioned or implied
-- Focus on BUILD-READY instructions, not summaries`;
+- Extract ONLY from provided frame data (OCR) and context
+- Be build-ready. Avoid fluff.
+- Maintain high precision for timestamps
+- Focus on the "HOW" more than the "WHAT"`;
 
     const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -244,6 +250,12 @@ RULES:
 
     // Parse the AI response
     let extractedSteps: ExtractedStep[] = [];
+    let intelligenceLayers: IntelligenceLayers = {
+      key_moments_index: [],
+      concepts_frameworks: [],
+      hidden_patterns: []
+    };
+
     try {
       // Handle markdown code blocks
       let jsonContent = responseContent;
@@ -253,7 +265,10 @@ RULES:
       }
 
       const parsed = JSON.parse(jsonContent);
-      extractedSteps = parsed.steps || parsed;
+      extractedSteps = (parsed.steps || parsed) as ExtractedStep[];
+      if (parsed.intelligence_layers) {
+        intelligenceLayers = parsed.intelligence_layers;
+      }
     } catch (parseError) {
       console.error(`[extract-implementation-steps] Failed to parse AI response:`, parseError);
       console.log(`[extract-implementation-steps] Raw response:`, responseContent);
@@ -274,7 +289,21 @@ RULES:
         }));
     }
 
-    console.log(`[extract-implementation-steps] Extracted ${extractedSteps.length} steps`);
+    console.log(`[extract-implementation-steps] Extracted ${extractedSteps.length} steps and intelligence layers`);
+
+    // Update artifact with intelligence layers
+    const { error: artifactUpdateError } = await supabase
+      .from("transformation_artifacts")
+      .update({
+        key_moments_index: intelligenceLayers.key_moments_index,
+        concepts_frameworks: intelligenceLayers.concepts_frameworks,
+        hidden_patterns: intelligenceLayers.hidden_patterns
+      })
+      .eq("id", artifact_id);
+
+    if (artifactUpdateError) {
+      console.error(`[extract-implementation-steps] Failed to update artifact:`, artifactUpdateError);
+    }
 
     // Map frame indices to frame IDs
     const frameIndexToId = new Map(frames.map((f: FrameData) => [f.frame_index, f.id]));
