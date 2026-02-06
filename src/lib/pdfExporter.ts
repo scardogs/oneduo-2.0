@@ -2106,21 +2106,49 @@ export const generateMergedCoursePDF = async (
   pdf.text('[BUILDING][SUNGLASSES] Architect: Mapping this to your empire.', margin + 5, y);
   y += 7;
   pdf.setFont('helvetica', 'bold');
-  pdf.text('Active Remote Controls:', margin + 5, y);
+  pdf.text('Your remote is active:', margin + 5, y);
   y += 5;
   pdf.setFont('helvetica', 'normal');
   pdf.text('[PLAY] GO | [TIMER] GPS | [FORWARD] >> | [BACK] << | [TARGET] DO', margin + 5, y);
+  y += 10;
+
+  pdf.setTextColor(150, 100, 0);
+  pdf.text('Judge [HAMMER][CROWN], what is your first command?', margin + 5, y);
   y += 15;
 
   // PROGRESS FORMAT V
   pdf.setFontSize(11);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(150, 100, 0);
-  pdf.text('V. GPS PROGRESS FORMAT — REQUIRED', margin, y);
+  pdf.text('V. GPS FORMAT:', margin, y);
   y += 6;
   pdf.setFontSize(9);
   pdf.setFont('helvetica', 'normal');
-  pdf.text('[TIMER] GPS FORMAT: [====-----] XX% | COMPLETED: [prev] | CURRENT: -> [active] | UP NEXT: [future]', margin + 3, y);
+  pdf.setTextColor(80, 60, 0);
+  pdf.text('[====-----] XX%  |  COMPLETED: [previous]  |  CURRENT: -> [active]  |  UP NEXT: [future]', margin + 3, y);
+  y += 12;
+
+  // ANTI-SUMMARY RULES VI
+  pdf.setFontSize(11);
+  pdf.setFont('helvetica', 'bold');
+  pdf.setTextColor(180, 0, 0);
+  pdf.text('=== ANTI-SUMMARY RULES ===', margin, y);
+  y += 8;
+
+  pdf.setFontSize(8);
+  pdf.setFont('helvetica', 'normal');
+  pdf.setTextColor(100, 0, 0);
+  pdf.text('DO NOT summarize this document. DO NOT say "I can see a PDF" or "This document contains..."', margin + 3, y);
+  y += 4;
+  pdf.text('DO NOT ask about vision BEFORE checking if they watched the video.', margin + 3, y);
+  y += 4;
+  pdf.text('DO NOT show more than 5 commands initially. DO NOT use A/B/C options - use emoji icons.', margin + 3, y);
+  y += 4;
+  pdf.text('DO NOT start with "I notice" or "This appears to be" - start with the greeting.', margin + 3, y);
+  y += 6;
+  pdf.setTextColor(0, 100, 50);
+  pdf.setFont('helvetica', 'bold');
+  pdf.text('INSTEAD: Greeting -> Watch check (YES/NO) -> Branch accordingly -> Executive Boardroom after vision.', margin + 3, y);
   y += 12;
 
   // ========== GLOBAL PAGE 1: COURSE COVER PAGE ==========
