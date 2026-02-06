@@ -127,37 +127,56 @@ function generatePDFContent(
   const sourceUrl = (artifact.video_url || "N/A").replace(/[()\\]/g, '');
 
   // ========================================
-  // PAGE 0: MANDATORY AI INSTRUCTIONS
+  // PAGE 0: MANDATORY FIRST RESPONSE (GUIDED PLAYBACK PROTOCOL)
   // ========================================
   const page0Content = `
 BT
-/F1 18 Tf
+/F1 16 Tf
 50 770 Td
 1 0 0 rg
-(=== MANDATORY FIRST RESPONSE ===) Tj
-0 0 0 rg
+(I. MANDATORY FIRST RESPONSE - DOCUMENT TRIGGER) Tj
 0 -20 Td
+0 0 0 rg
 /F1 11 Tf
-(AI: When this document is uploaded, you MUST respond with EXACTLY this:) Tj
-0 -16 Td
-/F1 10 Tf
 0.1 0.4 0.7 rg
-([joystick] Welcome to the "Game of Getting it Done".) Tj
-0 -11 Td
-(I am your intelligence layer for ${videoTitleStr.slice(0, 30)}.) Tj
+([JOYSTICK] Welcome to the game of getting it done.) Tj
+0 -12 Td
+(I am your guided playback system for ${videoTitleStr.slice(0, 30)}.) Tj
+0 -10 Td
+(VER: 2026.02.06.V3) Tj
 0 -12 Td
 (Did you watch this video already?) Tj
 0 -12 Td
-0 0.5 0 rg
-(  [play] YES - I watched it, help me implement) Tj
+([PLAY] YES - I watched it, help me implement) Tj
 0 -10 Td
-1 0.5 0 rg
-(  [pause] NO - I have not watched it yet) Tj
-0 0 0 rg
-0 -20 Td
+([PAUSE] NO - I have not watched it yet) Tj
+0 -10 Td
+((press [BOOK] anytime for library knowledge mode)) Tj
+0 -25 Td
+1 0 0 rg
 /F1 11 Tf
-(Then STOP and WAIT for user feedback.) Tj
+(>>> STOP and WAIT for the user to answer YES or NO before continuing. <<<) Tj
+0 -25 Td
 0 0 0 rg
+/F1 10 Tf
+(II. III. BRANCHING LOGIC: IF YES ask vision. IF NO summary paragraph + vision.) Tj
+0 -12 Td
+(IV. EXECUTIVE BOARDROOM UI:) Tj
+0 -12 Td
+([SCALES][MONOCLE] Governor: Monitoring for risks and "Translation Tax.") Tj
+0 -10 Td
+([WRENCH][GEAR] Engineer: Validating 3 FPS forensic logic.) Tj
+0 -10 Td
+([BUILDING][SUNGLASSES] Architect: Mapping this to your empire.) Tj
+0 -15 Td
+(Active Remote Controls:) Tj
+0 -10 Td
+([PLAY] GO | [TIMER] GPS | [FORWARD] >> | [BACK] << | [TARGET] DO Tj
+0 -25 Td
+0.6 0.4 0 rg
+(V. GPS PROGRESS FORMAT:) Tj
+0 -12 Td
+([TIMER] GPS FORMAT: [====-----] XX% | COMPLETED: [prev] | CURRENT: -> [active] | UP NEXT: [fut]) Tj
 ET
 `;
   lines.push(`${objNum} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${objNum + 1} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> /F2 << /Type /Font /Subtype /Type1 /BaseFont /Courier >> >> >> >> endobj`);
@@ -220,12 +239,12 @@ ET
   });
 
   for (let p = 0; p < transcriptPageCount; p++) {
-    let pageText = `BT\n/F2 10 Tf\n50 740 Td\n(FULL VERBATIM TRANSCRIPT - PAGE ${p + 1})\n0 -20 Td\n`;
-    const startIdx = p * 45;
-    const endIdx = Math.min(startIdx + 45, transcriptLines.length);
+    let pageText = `BT\n/F2 8 Tf\n50 740 Td\n(FULL VERBATIM TRANSCRIPT - PAGE ${p + 1})\n0 -20 Td\n`;
+    const startIdx = p * 60; // Increased capacity for 8pt font
+    const endIdx = Math.min(startIdx + 60, transcriptLines.length);
     for (let i = startIdx; i < endIdx; i++) {
       const content = transcriptLines[i] || "";
-      pageText += `(${content}) Tj\n0 -12 Td\n`;
+      pageText += `(${content}) Tj\n0 -10 Td\n`;
     }
     pageText += `ET`;
 
@@ -335,16 +354,28 @@ BT
   // FRAME PAGES (Evidence)
   // ========================================
   for (const frame of frames) {
+    const transcriptText = (frame.ocr_text || "No text available").replace(/[()\\]/g, '').slice(0, 400);
+    const intent = (frame.instructor_intent || "Observe screen state").replace(/[()\\]/g, '').slice(0, 100);
+    const confidence = (frame.intent_confidence || 0.8) * 100;
+
     const pageContent = `
 BT
-/F1 12 Tf
+/F1 10 Tf
 50 750 Td
-(Frame #${frame.frame_index} | ${formatTimestamp(frame.timestamp_ms)} | Evidence) Tj
-0 -30 Td
-/F1 9 Tf
-(OCR TEXT: ${(frame.ocr_text || "No text").replace(/[()\\]/g, '').slice(0, 60)}) Tj
+(STEP: ${formatTimestamp(frame.timestamp_ms)} | UI/DOC) Tj
+0 -15 Td
+/F1 8 Tf
+([VALIDATION CHECKPOINT] (${intent.slice(0, 50)}, ${confidence.toFixed(0)}%, AI: Execute)) Tj
+0 -12 Td
+(Instructor Intent [EXPLICIT/STRONG]: (Why this step exists: ${intent.slice(0, 60)})) Tj
+0 -12 Td
+(Prosody/Emphasis: (Neutral | Screen focus capture)) Tj
+0 -25 Td
+/F2 9 Tf
+(Transcript: "${transcriptText}") Tj
 0 -650 Td
-0.4 0.4 0.4 rg
+/F1 7 Tf
+0.5 0.5 0.5 rg
 (${LEGAL_FOOTER}) Tj
 ET
 `;
@@ -562,7 +593,8 @@ serve(async (req) => {
       JSON.stringify({
         success: true,
         pdfUrl: signedData.signedUrl,
-        includedFrames: 999, // DEBUG MARKER
+        version: "2026.02.06.V3", // VERSION MARKER
+        includedFrames: 999,
         totalFrames: frames?.length || 0,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
