@@ -66,12 +66,12 @@ async function queueNextStep(
       status: "pending",
       metadata,
     });
-    
+
     if (error) {
       console.error(`[queueNextStep] Failed to queue ${nextStep}:`, error);
       return false;
     }
-    
+
     console.log(`[queueNextStep] Queued ${nextStep} for course ${courseId}`);
     return true;
   } catch (e) {
@@ -88,7 +88,7 @@ serve(async (req: Request) => {
 
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    
+
     // Parse the webhook payload
     const body = await req.json();
     console.log(`[assemblyai-webhook] Received webhook:`, JSON.stringify(body).substring(0, 500));
@@ -96,7 +96,7 @@ serve(async (req: Request) => {
     // AssemblyAI webhook payload structure
     const transcriptId = body.transcript_id;
     const status = body.status; // "completed", "error"
-    
+
     // Get the full transcript data if completed
     let transcriptData = null;
     if (status === "completed" && transcriptId) {
@@ -121,16 +121,16 @@ serve(async (req: Request) => {
 
     if (!courseId || !recordId) {
       console.error(`[assemblyai-webhook] Missing required metadata`);
-      return new Response(JSON.stringify({ 
-        received: true, 
-        error: "Missing metadata - webhook ignored" 
+      return new Response(JSON.stringify({
+        received: true,
+        error: "Missing metadata - webhook ignored"
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const logJobId = tableName === 'courses' 
-      ? `course-${courseId.slice(0, 8)}` 
+    const logJobId = tableName === 'courses'
+      ? `course-${courseId.slice(0, 8)}`
       : `module-${recordId.slice(0, 8)}`;
 
     // Log webhook receipt
@@ -178,26 +178,45 @@ serve(async (req: Request) => {
         }
       });
 
-      // Check if frames are already extracted
-      // CRITICAL FIX: Only check frame_urls presence, NOT step_completed
-      // step_completed column only exists on course_modules, not courses table
-      const { data: record } = await supabase.from(tableName)
-        .select("frame_urls")
-        .eq("id", recordId)
-        .single();
-      
-      const hasFrames = Array.isArray(record?.frame_urls) && record.frame_urls.length > 0;
+      // Check if frames are already extracted (if applicable)
+      let hasFrames = false;
+      if (tableName !== 'transformation_artifacts') {
+        const { data: record } = await supabase.from(tableName)
+          .select("frame_urls")
+          .eq("id", recordId)
+          .single();
+        hasFrames = Array.isArray(record?.frame_urls) && record.frame_urls.length > 0;
+      } else {
+        // For transformation artifacts, transcription is independent of frame extraction
+        hasFrames = true; // Optimization: allow completion even without frames check
+      }
+
 
       if (hasFrames) {
         // Both transcription and frames are ready - queue next step
-        console.log(`[assemblyai-webhook] Both transcription and frames ready (${record.frame_urls.length} frames), queueing next step`);
-        
+        console.log(`[assemblyai-webhook] Both transcription and frames ready, queueing next step`);
+
+
         // Queue next step
         let nextStep = "analyze_audio";
-        if (step?.includes("module") || moduleNumber) {
+        if (tableName === 'transformation_artifacts') {
+          nextStep = "finalize_transformation"; // Custom step or just skip
+        } else if (step?.includes("module") || moduleNumber) {
           nextStep = "analyze_audio_module";
         }
-        
+
+        if (tableName === 'transformation_artifacts') {
+          // For artifacts, we just update status to completed if appropriate
+          await supabase.from("transformation_artifacts").update({
+            status: "completed",
+            progress: 100
+          }).eq("id", recordId);
+          return new Response(JSON.stringify({ received: true, status: "completed_artifact" }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+
         // CRITICAL FIX: Check if next step already exists - prevent duplicate queue jobs
         const { data: existingJob } = await supabase
           .from("processing_queue")
@@ -207,7 +226,7 @@ serve(async (req: Request) => {
           .in("status", ["completed", "processing", "pending"])
           .eq("purged", false)
           .maybeSingle();
-        
+
         if (existingJob) {
           console.log(`[assemblyai-webhook] ${nextStep} already exists (status: ${existingJob.status}), skipping queue`);
           return new Response(JSON.stringify({ received: true, skipped: true, reason: 'step_already_exists' }), {
@@ -215,24 +234,24 @@ serve(async (req: Request) => {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
         }
-        
+
         // FIX: Update progress_step to 'analyzing' for UI tracking
         await supabase.from(tableName).update({
           progress_step: "analyzing",
         }).eq("id", recordId);
-        
+
         // Mark current job as completed
         // FIX: Accept both 'awaiting_webhook' and 'processing' status to handle race conditions
         const { data: updatedRows } = await supabase.from("processing_queue")
-          .update({ 
-            status: "completed", 
-            completed_at: new Date().toISOString() 
+          .update({
+            status: "completed",
+            completed_at: new Date().toISOString()
           })
           .eq("course_id", courseId)
           .in("status", ["awaiting_webhook", "processing"])
           .in("step", ["transcribe", "transcribe_module", "transcribe_and_extract", "transcribe_and_extract_module"])
           .select("id");
-        
+
         // Log if no rows were updated
         if (!updatedRows || updatedRows.length === 0) {
           console.warn(`[assemblyai-webhook] WARNING: Queue job update affected 0 rows for course ${courseId}`);
@@ -254,53 +273,53 @@ serve(async (req: Request) => {
         // Trigger the worker
         await supabase.functions.invoke('process-course', {
           body: { action: 'poll' }
-        }).catch(() => {});
+        }).catch(() => { });
 
       } else {
         // Frames not ready yet - poll briefly for them (frame extraction is usually fast for short videos)
         console.log(`[assemblyai-webhook] Transcription ready but frames not yet available. Will poll for frames...`);
-        
+
         let framesReady = false;
         for (let i = 0; i < 6; i++) {
           await new Promise(r => setTimeout(r, 5000)); // Wait 5 seconds
-          
+
           const { data: recheckRecord } = await supabase.from(tableName)
             .select("frame_urls")
             .eq("id", recordId)
             .single();
-          
+
           if (Array.isArray(recheckRecord?.frame_urls) && recheckRecord.frame_urls.length > 0) {
             framesReady = true;
-            console.log(`[assemblyai-webhook] Frames now available (${recheckRecord.frame_urls.length}) after ${(i+1)*5}s delay`);
+            console.log(`[assemblyai-webhook] Frames now available (${recheckRecord.frame_urls.length}) after ${(i + 1) * 5}s delay`);
             break;
           }
         }
-        
+
         if (framesReady) {
           // Queue next step now that frames are ready
           let nextStep = "analyze_audio";
           if (step?.includes("module") || moduleNumber) {
             nextStep = "analyze_audio_module";
           }
-          
+
           // FIX: Update progress_step to 'analyzing' for UI tracking
           await supabase.from(tableName).update({
             progress_step: "analyzing",
           }).eq("id", recordId);
-          
+
           // Mark queue job complete
           await supabase.from("processing_queue")
             .update({ status: "completed", completed_at: new Date().toISOString() })
             .eq("course_id", courseId)
             .in("status", ["awaiting_webhook", "processing"])
             .in("step", ["transcribe", "transcribe_module", "transcribe_and_extract", "transcribe_and_extract_module"]);
-          
+
           console.log(`[assemblyai-webhook] Proceeding to ${nextStep} after frames became available`);
-          await queueNextStep(supabase, courseId, nextStep, { 
+          await queueNextStep(supabase, courseId, nextStep, {
             moduleNumber: moduleNumber ? parseInt(moduleNumber) : undefined,
             completedViaWebhook: true,
           });
-          await supabase.functions.invoke('process-course', { body: { action: 'poll' } }).catch(() => {});
+          await supabase.functions.invoke('process-course', { body: { action: 'poll' } }).catch(() => { });
         } else {
           // Frames still not ready after 30s - the replicate-webhook will handle it when frames arrive
           console.log(`[assemblyai-webhook] Frames not ready after 30s - replicate-webhook will handle continuation`);
@@ -313,8 +332,8 @@ serve(async (req: Request) => {
         }
       }
 
-      return new Response(JSON.stringify({ 
-        received: true, 
+      return new Response(JSON.stringify({
+        received: true,
         status: "processed",
         segments_stored: segments.length
       }), {
@@ -349,22 +368,22 @@ serve(async (req: Request) => {
         .select("frame_urls")
         .eq("id", recordId)
         .single();
-      
+
       if (Array.isArray(record?.frame_urls) && record.frame_urls.length > 0) {
         // Frames are ready - continue processing despite transcription failure
         let nextStep = step?.includes("module") ? "analyze_audio_module" : "analyze_audio";
-        await queueNextStep(supabase, courseId, nextStep, { 
+        await queueNextStep(supabase, courseId, nextStep, {
           moduleNumber: moduleNumber ? parseInt(moduleNumber) : undefined,
           transcriptionFailed: true
         });
-        
+
         await supabase.functions.invoke('process-course', {
           body: { action: 'poll' }
-        }).catch(() => {});
+        }).catch(() => { });
       }
 
-      return new Response(JSON.stringify({ 
-        received: true, 
+      return new Response(JSON.stringify({
+        received: true,
         status: "error_handled",
         continued: true
       }), {
@@ -373,8 +392,8 @@ serve(async (req: Request) => {
     }
 
     // Unknown status
-    return new Response(JSON.stringify({ 
-      received: true, 
+    return new Response(JSON.stringify({
+      received: true,
       status: "acknowledged"
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -383,10 +402,10 @@ serve(async (req: Request) => {
   } catch (error) {
     console.error("[assemblyai-webhook] Error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    
-    return new Response(JSON.stringify({ 
-      received: true, 
-      error: errorMessage 
+
+    return new Response(JSON.stringify({
+      received: true,
+      error: errorMessage
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

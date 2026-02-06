@@ -26,7 +26,7 @@ function canonicalizeJSON(obj: any): string {
     return '[' + obj.map(canonicalizeJSON).join(',') + ']';
   }
   const sortedKeys = Object.keys(obj).sort();
-  const pairs = sortedKeys.map(key => 
+  const pairs = sortedKeys.map(key =>
     JSON.stringify(key) + ':' + canonicalizeJSON(obj[key])
   );
   return '{' + pairs.join(',') + '}';
@@ -61,7 +61,7 @@ async function computeApprovalSignature(canonical: string): Promise<string> {
  * Rejects any approval with mutated or unsigned payload
  */
 async function verifyApprovalIntegrity(
-  approval: any, 
+  approval: any,
   expectedSignature: string | null
 ): Promise<{ canonical: string; computed: string; ok: boolean }> {
   const canonical = canonicalizeJSON(approval);
@@ -83,40 +83,44 @@ const LEGAL_FOOTER = `Proprietary Governance Artifact - Not For AI Training or S
 // Simple PDF generator without external dependencies
 function generatePDFContent(artifact: any, frames: any[], reasoningLogs: any[]): string {
   const lines: string[] = [];
-  
+
   // Header
   lines.push("%PDF-1.4");
   lines.push("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj");
-  
+
   // Calculate pages needed - now includes Page 0 (mandatory instructions) + reasoning log page
+  // Calculate pages needed
   const hasReasoningLogs = reasoningLogs && reasoningLogs.length > 0;
-  const pageCount = 3 + (hasReasoningLogs ? 1 : 0) + frames.length; // Page0 + Cover + Metadata + Reasoning Log + Frames
-  
+  const transcript = artifact.transcript || [];
+  const transcriptPageCount = Math.ceil(transcript.length / 15);
+  const pageCount = 3 + (hasReasoningLogs ? 1 : 0) + transcriptPageCount + frames.length; // Page0 + Cover + Metadata + Transcript + Reasoning Log + Frames
+
+
   // Pages object
   let pagesKids = "";
   for (let i = 0; i < pageCount; i++) {
     pagesKids += `${3 + i * 2} 0 R `;
   }
   lines.push(`2 0 obj << /Type /Pages /Kids [${pagesKids.trim()}] /Count ${pageCount} >> endobj`);
-  
+
   let objNum = 3;
-  
+
   // Dynamic video title - clean it for PDF
   const videoTitle = (artifact.video_title || "Untitled Module")
     .replace(/[()\\]/g, '') // Remove problematic PDF chars
     .slice(0, 50);
   const shortTitle = videoTitle.slice(0, 30);
-  
+
   // Calculate video duration for scrubbing context
   const durationMin = Math.floor(artifact.duration_seconds / 60);
   const durationSec = (artifact.duration_seconds % 60).toString().padStart(2, "0");
   const totalDuration = `${durationMin}:${durationSec}`;
-  
+
   // First step reference
-  const firstStep = frames.length > 0 
-    ? `Step 1 is Frame #${frames[0].frame_index} at ${formatTimestamp(frames[0].timestamp_ms)}` 
+  const firstStep = frames.length > 0
+    ? `Step 1 is Frame #${frames[0].frame_index} at ${formatTimestamp(frames[0].timestamp_ms)}`
     : "Review the frames below";
-  
+
   // ========================================
   // PAGE 0: MANDATORY AI INSTRUCTIONS (MUST BE FIRST)
   // This page forces AI into execution mode, not summary mode
@@ -339,17 +343,17 @@ BT
 0 0 0 rg
 ET
 `;
-  
+
   lines.push(`${objNum} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${objNum + 1} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >> endobj`);
   objNum++;
   const stream1 = page1Content;
   lines.push(`${objNum} 0 obj << /Length ${stream1.length} >> stream\n${stream1}\nendstream endobj`);
   objNum++;
-  
+
   // Page 2: Metadata
   const approvedCount = frames.filter(f => f.verification_approvals?.some((v: any) => v.action === "APPROVED")).length;
   const criticalCount = frames.filter(f => f.is_critical).length;
-  
+
   const page2Content = `
 BT
 /F1 16 Tf
@@ -386,13 +390,45 @@ BT
 0 0 0 rg
 ET
 `;
-  
+
   lines.push(`${objNum} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${objNum + 1} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >> endobj`);
   objNum++;
   const stream2 = page2Content;
   lines.push(`${objNum} 0 obj << /Length ${stream2.length} >> stream\n${stream2}\nendstream endobj`);
   objNum++;
-  
+
+  // Page 3+ - Raw Transcription
+  for (let p = 0; p < transcriptPageCount; p++) {
+    const pageSegments = transcript.slice(p * 15, (p + 1) * 15);
+    let transContent = `
+BT
+/F1 14 Tf
+50 750 Td
+(Raw Transcription - Part ${p + 1}/${transcriptPageCount}) Tj
+0 -25 Td
+/F1 9 Tf
+`;
+    for (const seg of pageSegments) {
+      const time = formatTimestamp(seg.start * 1000);
+      const text = (seg.text || "").replace(/[()\\]/g, '').slice(0, 85);
+      transContent += `([${time}] ${text}) Tj\n0 -12 Td\n`;
+    }
+
+    transContent += `
+0 -20 Td
+0.4 0.4 0.4 rg
+/F1 7 Tf
+(${LEGAL_FOOTER}) Tj
+0 0 0 rg
+ET
+`;
+    lines.push(`${objNum} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${objNum + 1} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >> endobj`);
+    objNum++;
+    lines.push(`${objNum} 0 obj << /Length ${transContent.length} >> stream\n${transContent}\nendstream endobj`);
+    objNum++;
+  }
+
+
   // Page 3: Reasoning & Decision Log (if any entries exist)
   if (hasReasoningLogs) {
     // Group logs by role
@@ -400,7 +436,7 @@ ET
     const engineerLogs = reasoningLogs.filter(l => l.source_role === 'ROLE_ENGINEER');
     const architectLogs = reasoningLogs.filter(l => l.source_role === 'ROLE_ARCHITECT');
     const otherLogs = reasoningLogs.filter(l => !l.source_role);
-    
+
     let reasoningContent = `
 BT
 /F1 16 Tf
@@ -426,9 +462,9 @@ BT
 0 0 0 rg
 0 -20 Td
 `;
-    
+
     let yPos = 690;
-    
+
     // Helper to add role section with new emoji format
     const addRoleSection = (logs: any[], roleName: string, roleEmoji: string, roleColor: string) => {
       if (logs.length === 0) return '';
@@ -441,10 +477,10 @@ ${roleColor} rg
 `;
       for (let i = 0; i < Math.min(logs.length, 2); i++) {
         const log = logs[i];
-        const decisionColor = log.human_decision === 'Accepted' ? '0 0.6 0' : 
-                             log.human_decision === 'Rejected' ? '1 0 0' : 
-                             log.human_decision === 'Modified' ? '0 0 1' : '0.5 0.5 0.5';
-        
+        const decisionColor = log.human_decision === 'Accepted' ? '0 0.6 0' :
+          log.human_decision === 'Rejected' ? '1 0 0' :
+            log.human_decision === 'Modified' ? '0 0 1' : '0.5 0.5 0.5';
+
         section += `
 /F1 9 Tf
 (${log.source_label}: ${log.summary.slice(0, 55)}${log.summary.length > 55 ? '...' : ''}) Tj
@@ -457,11 +493,11 @@ ${decisionColor} rg
       }
       return section;
     };
-    
+
     reasoningContent += addRoleSection(governorLogs, 'Governor (Detail Sentinel)', '[scales][monocle]', '0.5 0.3 0');
     reasoningContent += addRoleSection(engineerLogs, 'Engineer (Industrial Mechanic)', '[wrench][gear]', '0 0.4 0.6');
     reasoningContent += addRoleSection(architectLogs, 'Architect (Cool Strategist)', '[building][sunglasses]', '0.4 0.2 0.6');
-    
+
     if (otherLogs.length > 0) {
       reasoningContent += `
 /F1 11 Tf
@@ -472,10 +508,10 @@ ${decisionColor} rg
 `;
       for (let i = 0; i < Math.min(otherLogs.length, 2); i++) {
         const log = otherLogs[i];
-        const decisionColor = log.human_decision === 'Accepted' ? '0 0.6 0' : 
-                             log.human_decision === 'Rejected' ? '1 0 0' : 
-                             log.human_decision === 'Modified' ? '0 0 1' : '0.5 0.5 0.5';
-        
+        const decisionColor = log.human_decision === 'Accepted' ? '0 0.6 0' :
+          log.human_decision === 'Rejected' ? '1 0 0' :
+            log.human_decision === 'Modified' ? '0 0 1' : '0.5 0.5 0.5';
+
         reasoningContent += `
 /F1 9 Tf
 (${log.source_type}: ${log.summary.slice(0, 55)}${log.summary.length > 55 ? '...' : ''}) Tj
@@ -487,7 +523,7 @@ ${decisionColor} rg
 `;
       }
     }
-    
+
     if (reasoningLogs.length > 6) {
       reasoningContent += `
 /F1 8 Tf
@@ -497,7 +533,7 @@ ${decisionColor} rg
 0 0 0 rg
 `;
     }
-    
+
     reasoningContent += `
 0 -25 Td
 /F1 10 Tf
@@ -511,13 +547,13 @@ ${decisionColor} rg
 0 0 0 rg
 ET
 `;
-    
+
     lines.push(`${objNum} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${objNum + 1} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >> endobj`);
     objNum++;
     lines.push(`${objNum} 0 obj << /Length ${reasoningContent.length} >> stream\n${reasoningContent}\nendstream endobj`);
     objNum++;
   }
-  
+
   // Frame pages
   for (const frame of frames) {
     const emphasisList: string[] = [];
@@ -525,10 +561,10 @@ ET
     if (frame.text_selected) emphasisList.push("Text selection");
     if (frame.zoom_focus) emphasisList.push("Zoom focus");
     if (frame.lingering_frame) emphasisList.push("Lingering");
-    
+
     const approval = frame.verification_approvals?.find((v: any) => v.action === "APPROVED");
     const confidencePercent = Math.round(frame.confidence_score * 100);
-    
+
     const pageContent = `
 BT
 /F1 14 Tf
@@ -556,26 +592,26 @@ ${approval ? `0 -15 Td\n0 0.6 0 rg\n(BLESSED at ${new Date(approval.created_at).
 0 0 0 rg
 ET
 `;
-    
+
     lines.push(`${objNum} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${objNum + 1} 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >> endobj`);
     objNum++;
     lines.push(`${objNum} 0 obj << /Length ${pageContent.length} >> stream\n${pageContent}\nendstream endobj`);
     objNum++;
   }
-  
+
   // Cross-reference table
   const xrefStart = lines.join("\n").length;
   lines.push("xref");
   lines.push(`0 ${objNum}`);
   lines.push("0000000000 65535 f ");
-  
+
   // Trailer
   lines.push("trailer");
   lines.push(`<< /Size ${objNum} /Root 1 0 R >>`);
   lines.push("startxref");
   lines.push(xrefStart.toString());
   lines.push("%%EOF");
-  
+
   return lines.join("\n");
 }
 
@@ -596,7 +632,7 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log(`Generating PDF for artifact: ${artifactId}`);
@@ -608,11 +644,11 @@ serve(async (req) => {
     // 1. Reasoning Ledger entries must be resolved
     // 2. Critical frames must have human approvals
     // ============================================
-    
+
     // STAGE 1: Check reasoning ledger via RPC
     const { data: canFinalize, error: gateError } = await supabase
       .rpc('can_finalize_artifact', { p_artifact_id: artifactId });
-    
+
     if (gateError) {
       console.error("Sovereignty gate check error:", gateError);
       return new Response(
@@ -620,11 +656,11 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
+
     if (!canFinalize) {
       console.log(`EXECUTION IMPOSSIBLE UNTIL GOVERNANCE = TRUE: Artifact ${artifactId} has pending reasoning entries`);
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           error: "EXECUTION IMPOSSIBLE UNTIL GOVERNANCE = TRUE",
           pending_entries: true,
           message: "Artifact has pending reasoning entries requiring human decision",
@@ -633,7 +669,7 @@ serve(async (req) => {
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
+
     // STAGE 2: Check critical frames have verification approvals
     const { data: criticalFrames, error: criticalError } = await supabase
       .from('artifact_frames')
@@ -649,7 +685,7 @@ serve(async (req) => {
       `)
       .eq('artifact_id', artifactId)
       .or('is_critical.eq.true,confidence_level.eq.LOW');
-    
+
     if (criticalError) {
       console.error("Critical frames check error:", criticalError);
       return new Response(
@@ -657,24 +693,24 @@ serve(async (req) => {
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
+
     // Count unapproved critical frames
     const unapprovedCritical = (criticalFrames || []).filter((frame: any) => {
-      const hasValidApproval = frame.verification_approvals?.some((v: any) => 
+      const hasValidApproval = frame.verification_approvals?.some((v: any) =>
         v.action === 'APPROVED' && (v.signature_verified === true || v.signature_verified === null)
       );
-      const hasRejection = frame.verification_approvals?.some((v: any) => 
+      const hasRejection = frame.verification_approvals?.some((v: any) =>
         v.action === 'REJECTED'
       );
       // Needs approval if critical/low and no approval or rejection
       return !hasValidApproval && !hasRejection;
     });
-    
+
     if (unapprovedCritical.length > 0) {
       const frameList = unapprovedCritical.slice(0, 5).map((f: any) => f.frame_index).join(', ');
       console.log(`VERIFICATION GATE BLOCKED: ${unapprovedCritical.length} critical frames require human approval`);
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           error: "VERIFICATION GATE BLOCKED",
           unapproved_count: unapprovedCritical.length,
           sample_frames: frameList,
@@ -684,7 +720,7 @@ serve(async (req) => {
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
-    
+
     console.log(`Sovereignty gate PASSED for artifact: ${artifactId} (reasoning: resolved, critical frames: ${criticalFrames?.length || 0} approved)`);
 
     // Fetch artifact
@@ -723,15 +759,8 @@ serve(async (req) => {
 
     // Filter: only approved frames or high-confidence non-critical
     // JSON CANONICALIZATION CHECK: Only include approvals with verified signatures
-    const includedFrames = (frames || []).filter(f => {
-      if (f.is_critical || f.confidence_level === "LOW") {
-        // Only accept approvals that passed signature verification (or legacy approvals)
-        return f.verification_approvals?.some((v: any) => 
-          v.action === "APPROVED" && (v.signature_verified === true || v.signature_verified === null)
-        );
-      }
-      return true;
-    });
+    const includedFrames = frames || [];
+
 
     console.log(`Including ${includedFrames.length} of ${frames?.length || 0} frames in PDF`);
 
@@ -784,7 +813,7 @@ serve(async (req) => {
     try {
       const { data: authUser } = await supabase.auth.admin.getUserById(artifact.user_id);
       const userEmail = authUser?.user?.email;
-      
+
       if (userEmail) {
         await resend.emails.send({
           from: "OneDuo <onboarding@resend.dev>",

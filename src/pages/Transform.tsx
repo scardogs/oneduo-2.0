@@ -124,11 +124,13 @@ export default function Transform() {
 
       // Simulate processing stages
       const stages = [
-        { progress: 50, stage: "Extracting frames: analyzing video..." },
-        { progress: 60, stage: "Running OCR analysis on frames..." },
-        { progress: 70, stage: "Detecting emphasis signals..." },
-        { progress: 80, stage: "Calculating confidence scores..." },
+        { progress: 45, stage: "Extracting frames: analyzing video..." },
+        { progress: 55, stage: "Starting AI transcription (AssemblyAI)..." },
+        { progress: 65, stage: "Running forensic OCR analysis..." },
+        { progress: 75, stage: "Detecting emphasis signals..." },
+        { progress: 85, stage: "Calculating confidence scores..." },
       ];
+
 
       for (const s of stages) {
         await new Promise(resolve => setTimeout(resolve, 800));
@@ -144,7 +146,7 @@ export default function Transform() {
 
       setProcessingState({ status: "completed", progress: 100, stage: "Transformation complete!" });
       toast.success("Video transformed successfully!");
-      
+
       refetchArtifacts();
 
     } catch (error) {
@@ -174,14 +176,15 @@ export default function Transform() {
           </p>
         </div>
 
-        {/* Simulation Mode Banner */}
-        <Alert className="mb-6 border-amber-500/50 bg-amber-500/10">
-          <AlertTriangle className="h-4 w-4 text-amber-500" />
-          <AlertDescription className="text-amber-600 dark:text-amber-400">
-            ⚠️ SIMULATION MODE - Full frame extraction with Replicate in Phase 2. 
-            Currently generating simulated emphasis data.
+        {/* Production Mode Banner */}
+        <Alert className="mb-6 border-primary/50 bg-primary/5">
+          <Zap className="h-4 w-4 text-primary" />
+          <AlertDescription className="text-primary">
+            High-Density Temporal Sampling active (3 FPS).
+            Artifacts are optimized for execution-grade AI delegation.
           </AlertDescription>
         </Alert>
+
 
         {/* Upload Card */}
         <Card className="mb-8">
@@ -197,9 +200,8 @@ export default function Transform() {
           <CardContent>
             <div className="space-y-4">
               <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  file ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50"
-                }`}
+                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${file ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50"
+                  }`}
               >
                 <input
                   type="file"

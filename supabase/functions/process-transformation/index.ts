@@ -474,7 +474,8 @@ serve(async (req) => {
     // Calculate frame count at 3 FPS
     const durationSeconds = artifact.duration_seconds || 30;
     const frameCount = durationSeconds * 3;
-    const framesToProcess = Math.min(frameCount, 100);
+    const framesToProcess = Math.min(frameCount, 5000); // Increased limit from 100
+
 
     const frames = [];
     const criticalKeywords = ["delete", "remove", "publish", "send", "pay", "transfer", "confirm", "submit", "execute"];
@@ -651,7 +652,47 @@ serve(async (req) => {
       }
     }
 
+    // ============================================
+    // REAL TRANSCRIPTION INTEGRATION
+    // ============================================
+    const ASSEMBLYAI_API_KEY = Deno.env.get("ASSEMBLYAI_API_KEY");
+    if (ASSEMBLYAI_API_KEY && artifact.video_url) {
+      console.log(`[OneDuo] Starting transcription for artifact: ${artifactId}`);
+      try {
+        // Build webhook URL
+        const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+        const webhookUrl = new URL(`${supabaseUrl}/functions/v1/assemblyai-webhook`);
+        webhookUrl.searchParams.set("courseId", artifactId); // Using artifactId as courseId for webhook compatibility
+        webhookUrl.searchParams.set("recordId", artifactId);
+        webhookUrl.searchParams.set("tableName", "transformation_artifacts");
+
+        const transResponse = await fetch("https://api.assemblyai.com/v2/transcript", {
+          method: "POST",
+          headers: {
+            "Authorization": ASSEMBLYAI_API_KEY,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            audio_url: artifact.video_url,
+            language_detection: true,
+            webhook_url: webhookUrl.toString()
+          }),
+        });
+
+
+        if (transResponse.ok) {
+          const transData = await transResponse.json();
+          console.log(`[OneDuo] Transcription job submitted: ${transData.id}`);
+          // Note: Webhook could be added here for real-time updates
+          // For now we store the ID or wait if it's short
+        }
+      } catch (err) {
+        console.error("[OneDuo] Transcription submission failed:", err);
+      }
+    }
+
     console.log(`[OneDuo] ✅ Transformation complete:`);
+
     console.log(`  - Frames: ${frames.length}`);
     console.log(`  - Key moments: ${keyMoments}`);
     console.log(`  - Critical steps: ${criticalCount}`);
