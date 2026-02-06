@@ -42,10 +42,10 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
+    const openaiApiKey = Deno.env.get("OPENAI_API_KEY");
 
-    if (!lovableApiKey) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    if (!openaiApiKey) {
+      throw new Error("OPENAI_API_KEY is not configured");
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -73,14 +73,14 @@ serve(async (req) => {
 
         for (const course of courses) {
           const isProcessing = !["completed", "failed"].includes(course.status);
-          
+
           if (isProcessing) {
-            const lastActivity = course.last_heartbeat_at 
+            const lastActivity = course.last_heartbeat_at
               ? new Date(course.last_heartbeat_at).getTime()
               : new Date(course.updated_at).getTime();
-            
+
             const isStalled = (now - lastActivity) > twoMinutes;
-            
+
             if (isStalled) {
               stalledCourses.push(course);
               relevantCourseIds.push(course.id);
@@ -120,40 +120,40 @@ serve(async (req) => {
               if (!course || !course.is_multi_module) continue;
 
               breakdownLines.push(`\nMODULES FOR "${course.title}":`);
-              
+
               const completed = courseMods.filter(m => m.status === "completed");
               const failed = courseMods.filter(m => m.status === "failed" || m.last_error);
               const processing = courseMods.filter(m => !["completed", "failed"].includes(m.status) && !m.last_error);
               const queued = courseMods.filter(m => m.status === "queued");
 
               for (const mod of courseMods) {
-                const statusEmoji = mod.status === "completed" ? "✅" : 
-                                   mod.status === "failed" || mod.last_error ? "❌" :
-                                   mod.status === "queued" ? "⏳" : "🔄";
-                
+                const statusEmoji = mod.status === "completed" ? "✅" :
+                  mod.status === "failed" || mod.last_error ? "❌" :
+                    mod.status === "queued" ? "⏳" : "🔄";
+
                 let statusText = `${statusEmoji} ${mod.title}: ${mod.status} at ${mod.progress}%`;
-                
+
                 if (mod.processing_state && mod.processing_state !== "pending") {
                   statusText += ` (${mod.processing_state})`;
                 }
-                
+
                 if (mod.last_error) {
                   // Simplify error for context
                   const simpleError = mod.last_error.includes("timeout") ? "timed out" :
-                                     mod.last_error.includes("stuck") ? "got stuck" :
-                                     mod.last_error.includes("memory") ? "memory issue" :
-                                     mod.last_error.includes("format") ? "format issue" :
-                                     "hit an error";
+                    mod.last_error.includes("stuck") ? "got stuck" :
+                      mod.last_error.includes("memory") ? "memory issue" :
+                        mod.last_error.includes("format") ? "format issue" :
+                          "hit an error";
                   statusText += ` - ${simpleError}`;
                 }
-                
+
                 statusText += ` (module ref: ${mod.id})`;
                 breakdownLines.push(`  ${statusText}`);
               }
 
               breakdownLines.push(`  Summary: ${completed.length} done, ${processing.length} in progress, ${queued.length} waiting, ${failed.length} need help`);
             }
-            
+
             if (breakdownLines.length > 0) {
               moduleBreakdown = breakdownLines.join("\n");
             }
@@ -172,7 +172,7 @@ serve(async (req) => {
             for (const err of errorLogs.slice(0, 5)) {
               const course = courses.find(c => c.id === err.course_id);
               const stepName = err.step.replace(/_/g, " ");
-              
+
               // Translate technical errors to user-friendly language
               let userFriendlyError = err.error_message;
               if (err.error_message.includes("stuck")) {
@@ -184,11 +184,11 @@ serve(async (req) => {
               } else if (err.error_message.includes("format")) {
                 userFriendlyError = "Video format had issues";
               }
-              
-              const fixInfo = err.fix_attempted 
+
+              const fixInfo = err.fix_attempted
                 ? (err.fix_succeeded ? " - auto-fix worked!" : " - auto-fix tried but needs manual retry")
                 : " - can retry";
-              
+
               errorLines.push(`  - "${course?.title || 'Unknown'}": ${stepName} - ${userFriendlyError}${fixInfo}`);
             }
             errorDetails = errorLines.join("\n");
@@ -295,14 +295,14 @@ ${courseContext}
     console.log("[nedu-chat] Processing message for:", email);
     console.log("[nedu-chat] Course context:", courseContext);
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${lovableApiKey}`,
+        Authorization: `Bearer ${openaiApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "gpt-4o",
         messages,
         max_tokens: 500,
         temperature: 0.7,
@@ -312,18 +312,18 @@ ${courseContext}
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ 
+          JSON.stringify({
             error: "I'm a bit busy right now. Give me a moment and try again!",
-            actions: [] 
+            actions: []
           }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
       if (response.status === 402) {
         return new Response(
-          JSON.stringify({ 
+          JSON.stringify({
             error: "I need a quick coffee break. Please try again in a moment!",
-            actions: [] 
+            actions: []
           }),
           { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
@@ -371,8 +371,8 @@ ${courseContext}
     console.log("[nedu-chat] Response generated with", actions.length, "actions, step:", stepProgress);
 
     return new Response(
-      JSON.stringify({ 
-        message: cleanContent, 
+      JSON.stringify({
+        message: cleanContent,
         actions,
         stepProgress,
         stalledCount: stalledCourses.length,
@@ -385,10 +385,10 @@ ${courseContext}
   } catch (error) {
     console.error("[nedu-chat] Error:", error);
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         error: error instanceof Error ? error.message : "Something went wrong",
         message: "Oops! I hit a small snag. Let me try again - just send your message once more.",
-        actions: [] 
+        actions: []
       }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

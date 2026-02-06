@@ -64,12 +64,12 @@ serve(async (req) => {
     const { artifact_id } = await req.json();
 
     if (!artifact_id) {
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: 'Missing required parameter: artifact_id' 
-      }), { 
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Missing required parameter: artifact_id'
+      }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
 
@@ -83,12 +83,12 @@ serve(async (req) => {
       .single();
 
     if (artifactError || !artifact) {
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: 'Artifact not found' 
-      }), { 
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Artifact not found'
+      }), {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
 
@@ -101,12 +101,12 @@ serve(async (req) => {
       .order("frame_index", { ascending: true });
 
     if (framesError || !frames || frames.length === 0) {
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: 'No frames found for artifact' 
-      }), { 
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'No frames found for artifact'
+      }), {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
       });
     }
 
@@ -121,10 +121,10 @@ serve(async (req) => {
       critical: f.is_critical
     }));
 
-    // Use Lovable AI to extract structured implementation steps
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    // Use OpenAI to extract structured implementation steps
+    const apiKey = Deno.env.get("OPENAI_API_KEY");
     if (!apiKey) {
-      throw new Error("LOVABLE_API_KEY not configured");
+      throw new Error("OPENAI_API_KEY not configured");
     }
 
     const extractionPrompt = `You are ONEDUO — an execution intelligence system.
@@ -216,20 +216,20 @@ RULES:
 - Identify ALL gotchas and exceptions mentioned or implied
 - Focus on BUILD-READY instructions, not summaries`;
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "gpt-4o",
         messages: [
           { role: "system", content: "You extract structured implementation steps from video frames. Output valid JSON only." },
           { role: "user", content: extractionPrompt }
         ],
         temperature: 0.3, // Lower temperature for structured extraction
-        max_tokens: 8000,
+        max_tokens: 4096,
       }),
     });
 
@@ -251,13 +251,13 @@ RULES:
       if (jsonMatch) {
         jsonContent = jsonMatch[1].trim();
       }
-      
+
       const parsed = JSON.parse(jsonContent);
       extractedSteps = parsed.steps || parsed;
     } catch (parseError) {
       console.error(`[extract-implementation-steps] Failed to parse AI response:`, parseError);
       console.log(`[extract-implementation-steps] Raw response:`, responseContent);
-      
+
       // Fallback: create basic steps from critical frames
       extractedSteps = frames
         .filter((f: FrameData) => f.is_critical || f.confidence_score > 0.7)
@@ -281,10 +281,10 @@ RULES:
 
     // Insert steps into database (all as 'proposed' - awaiting human approval)
     const insertedSteps: { stepNumber: number; stepId: string }[] = [];
-    
+
     for (const step of extractedSteps) {
-      const sourceFrameId = step.source_frame_id || 
-        frameIndexToId.get((step as unknown as { source_frame_index?: number }).source_frame_index || 0) || 
+      const sourceFrameId = step.source_frame_id ||
+        frameIndexToId.get((step as unknown as { source_frame_index?: number }).source_frame_index || 0) ||
         null;
 
       const { data: insertedStep, error: insertError } = await supabase
@@ -330,7 +330,7 @@ RULES:
 
     // Insert dependencies (after all steps are created)
     const stepNumberToId = new Map(insertedSteps.map(s => [s.stepNumber, s.stepId]));
-    
+
     for (const step of extractedSteps) {
       const dependentStepId = stepNumberToId.get(step.step_number);
       if (!dependentStepId || !step.dependencies) continue;
@@ -375,12 +375,12 @@ RULES:
   } catch (error) {
     console.error("[extract-implementation-steps] Error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ 
-      success: false, 
-      error: errorMessage 
-    }), { 
-      status: 500, 
-      headers: { ...corsHeaders, "Content-Type": "application/json" } 
+    return new Response(JSON.stringify({
+      success: false,
+      error: errorMessage
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" }
     });
   }
 });

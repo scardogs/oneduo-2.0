@@ -8,7 +8,7 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
 // Keywords that suggest user wants to know about visual content
 const VISUAL_QUERY_PATTERNS = [
@@ -93,26 +93,26 @@ serve(async (req) => {
     // Check if this is a visual query that needs frame analysis
     const needsVision = isVisualQuery(message);
     const frameUrls = course.frame_urls || [];
-    
+
     console.log(`[course-chat] Visual query: ${needsVision}, Frame count: ${frameUrls.length}, Build Mode: ${buildMode}, Platform: ${platform}`);
 
     // Build messages for AI with progress context and module files
     const systemPrompt = buildSystemPrompt(course, progressData || [], needsVision, buildMode, platform, modulesData || []);
-    
+
     // Prepare messages array
     let messages: any[] = [];
-    
+
     if (needsVision && frameUrls.length > 0) {
       // For visual queries, include sample frames in the request using vision
       const frameIndices = selectRepresentativeFrames(frameUrls.length, 6);
-      
+
       console.log(`[course-chat] Sending ${frameIndices.length} frames for visual analysis`);
-      
+
       // Build content with images for the user message
       const userContent: any[] = [
         { type: "text", text: message }
       ];
-      
+
       // Add frame images to analyze
       for (const idx of frameIndices) {
         const frameUrl = frameUrls[idx];
@@ -123,7 +123,7 @@ serve(async (req) => {
           });
         }
       }
-      
+
       messages = [
         { role: "system", content: systemPrompt },
         ...(chatHistory || []).map((m: any) => ({
@@ -153,13 +153,13 @@ serve(async (req) => {
       const minutes = timestampMatch[3] ? parseInt(timestampMatch[2]) : parseInt(timestampMatch[1]);
       const seconds = timestampMatch[3] ? parseInt(timestampMatch[3]) : parseInt(timestampMatch[2]);
       const totalSeconds = hours * 3600 + minutes * 60 + seconds;
-      
+
       const fps = course.fps_target || 1;
       const frameIndex = Math.min(
         Math.floor(totalSeconds * fps),
         frameUrls.length - 1
       );
-      
+
       if (frameIndex >= 0 && frameIndex < frameUrls.length) {
         frameReference = {
           timestamp: totalSeconds,
@@ -169,19 +169,18 @@ serve(async (req) => {
       }
     }
 
-    // Call Lovable AI with vision-capable model
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY not configured");
+    // Call OpenAI with vision-capable model
+    if (!OPENAI_API_KEY) {
+      throw new Error("OPENAI_API_KEY not configured");
     }
-
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "gpt-4o",
         messages,
         max_tokens: 2500,
       }),
@@ -190,7 +189,7 @@ serve(async (req) => {
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error("[course-chat] AI error:", errorText);
-      
+
       if (aiResponse.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
           status: 429,
@@ -274,14 +273,14 @@ function selectRepresentativeFrames(totalFrames: number, maxFrames: number): num
   if (totalFrames <= maxFrames) {
     return Array.from({ length: totalFrames }, (_, i) => i);
   }
-  
+
   const indices: number[] = [];
   const step = totalFrames / maxFrames;
-  
+
   for (let i = 0; i < maxFrames; i++) {
     indices.push(Math.floor(i * step));
   }
-  
+
   return indices;
 }
 
@@ -301,8 +300,8 @@ function buildSystemPrompt(course: any, progress: any[] = [], isVisualQuery: boo
   const completedSteps = progress.filter(p => p.completed).length;
   const totalSteps = progress.length;
   const nextStep = progress.find(p => !p.completed);
-  
-  const progressSummary = totalSteps > 0 
+
+  const progressSummary = totalSteps > 0
     ? `\n\n## User's Implementation Progress
 - Completed: ${completedSteps}/${totalSteps} steps
 - Next step: ${nextStep ? `"${nextStep.step_title}" (Step #${nextStep.step_number})` : "All steps complete! 🎉"}
@@ -326,10 +325,10 @@ ${courseFiles.map((f: any) => `- **${f.name}** (${formatFileSize(f.size)})`).joi
   // Build module-level supplementary files summary
   const moduleFilesSummary = modulesData.length > 0 && modulesData.some((m: any) => m.module_files?.length > 0)
     ? `\n\n## Module Supplementary Materials
-${modulesData.filter((m: any) => m.module_files?.length > 0).map((m: any) => 
-  `### ${m.title || `Module ${m.module_number}`}
+${modulesData.filter((m: any) => m.module_files?.length > 0).map((m: any) =>
+      `### ${m.title || `Module ${m.module_number}`}
 ${(m.module_files || []).map((f: any) => `- **${f.name}** (${formatFileSize(f.size)})`).join('\n')}`
-).join('\n\n')}`
+    ).join('\n\n')}`
     : '';
 
   // Add vision-specific instructions when analyzing frames

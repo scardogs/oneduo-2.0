@@ -65,19 +65,19 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured');
     }
 
     console.log(`[analyze-audio-events] Analyzing audio events for: ${videoUrl.substring(0, 80)}...`);
 
     // Build transcript context for better audio event inference
-    const transcriptContext = transcript 
+    const transcriptContext = transcript
       ? transcript.map(seg => `[${formatTime(seg.start)}] "${seg.text}"`).join('\n')
       : 'No transcript available';
 
-    const durationInfo = videoDuration 
+    const durationInfo = videoDuration
       ? `${Math.floor(videoDuration / 60)}m ${Math.floor(videoDuration % 60)}s`
       : 'Unknown duration';
 
@@ -161,20 +161,20 @@ Remember: Focus on audio that has MEANING - interpret it like a screenwriter wou
 
 Return valid JSON only.`;
 
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-4o',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.7,
-        max_tokens: 6000,
+        max_tokens: 4096,
       }),
     });
 
@@ -201,7 +201,7 @@ Return valid JSON only.`;
     } catch (parseError) {
       console.error('[analyze-audio-events] Failed to parse AI response:', parseError);
       console.log('[analyze-audio-events] Raw content:', content.substring(0, 500));
-      
+
       // Return a minimal valid response
       audioEvents = {
         music_cues: [],
@@ -218,10 +218,10 @@ Return valid JSON only.`;
     audioEvents.reactions = audioEvents.reactions || [];
     audioEvents.meaningful_pauses = audioEvents.meaningful_pauses || [];
 
-    const totalEvents = audioEvents.music_cues.length + 
-                       audioEvents.ambient_sounds.length + 
-                       audioEvents.reactions.length + 
-                       audioEvents.meaningful_pauses.length;
+    const totalEvents = audioEvents.music_cues.length +
+      audioEvents.ambient_sounds.length +
+      audioEvents.reactions.length +
+      audioEvents.meaningful_pauses.length;
 
     console.log(`[analyze-audio-events] Detected ${totalEvents} total audio events:
       - Music cues: ${audioEvents.music_cues.length}

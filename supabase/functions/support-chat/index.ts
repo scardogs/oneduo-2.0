@@ -9,8 +9,7 @@ const corsHeaders = {
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -25,7 +24,7 @@ serve(async (req) => {
 
     // ============ INPUT VALIDATION ============
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    
+
     // Validate email format when provided
     if (userEmail) {
       if (typeof userEmail !== 'string' || userEmail.length > 255) {
@@ -136,9 +135,9 @@ What can I help you with today?`,
           .eq("conversation_id", conversation.id)
           .order("created_at", { ascending: true });
 
-        return new Response(JSON.stringify({ 
-          conversation, 
-          messages: messages || [] 
+        return new Response(JSON.stringify({
+          conversation,
+          messages: messages || []
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -182,7 +181,7 @@ What can I help you with today?`,
             .select("title, status, error_message, progress, video_duration_seconds")
             .eq("id", conv.course_id)
             .single();
-          
+
           if (course) {
             courseContext = `User is asking about course: "${course.title}" (Status: ${course.status}, Progress: ${course.progress}%${course.error_message ? `, Error: ${course.error_message}` : ""})`;
           }
@@ -196,7 +195,7 @@ What can I help you with today?`,
             .eq("email", userEmail)
             .order("created_at", { ascending: false })
             .limit(5);
-          
+
           if (userCourses?.length) {
             courseContext += `\n\nUser's recent courses: ${userCourses.map(c => `"${c.title}" (${c.status})`).join(", ")}`;
           }
@@ -240,16 +239,16 @@ NEVER:
 
         let aiResponse = "I apologize, but I'm having trouble responding right now. Please try again in a moment.";
 
-        if (LOVABLE_API_KEY) {
+        if (OPENAI_API_KEY) {
           try {
-            const aiResp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            const aiResp = await fetch("https://api.openai.com/v1/chat/completions", {
               method: "POST",
               headers: {
-                Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                Authorization: `Bearer ${OPENAI_API_KEY}`,
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                model: "google/gemini-2.5-flash",
+                model: "gpt-4o",
                 messages,
                 max_tokens: 1000,
               }),
@@ -278,9 +277,9 @@ NEVER:
           .update({ updated_at: new Date().toISOString() })
           .eq("id", conversationId);
 
-        return new Response(JSON.stringify({ 
+        return new Response(JSON.stringify({
           response: aiResponse,
-          success: true 
+          success: true
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -317,9 +316,9 @@ NEVER:
 
         // Format conversation for email
         const formattedMessages = messages.map(m => {
-          const timestamp = new Date(m.created_at).toLocaleTimeString('en-US', { 
-            hour: '2-digit', 
-            minute: '2-digit' 
+          const timestamp = new Date(m.created_at).toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
           });
           const sender = m.role === 'user' ? 'You' : 'OneDuo AI';
           return `<div style="margin-bottom: 16px;">

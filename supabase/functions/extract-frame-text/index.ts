@@ -104,7 +104,7 @@ const INTENT_PATTERNS = {
 
 function detectVerbalMarkers(transcriptContext: string): VerbalIntentMarker[] {
   const markers: VerbalIntentMarker[] = [];
-  
+
   for (const [markerType, patterns] of Object.entries(INTENT_PATTERNS)) {
     for (const pattern of patterns) {
       const matches = transcriptContext.match(pattern);
@@ -119,7 +119,7 @@ function detectVerbalMarkers(transcriptContext: string): VerbalIntentMarker[] {
       }
     }
   }
-  
+
   return markers;
 }
 
@@ -130,7 +130,7 @@ function calculateIntentConfidence(
 ): { confidence: number; source: FrameAnalysis['intentSource']; mustNotSkip: boolean } {
   let score = 0;
   let signals = 0;
-  
+
   // Visual signals
   if (emphasisFlags.highlight_detected) { score += 0.3; signals++; }
   if (emphasisFlags.text_selected) { score += 0.25; signals++; }
@@ -139,29 +139,29 @@ function calculateIntentConfidence(
   if (emphasisFlags.lingering_frame) { score += 0.15; signals++; }
   if (emphasisFlags.bold_text) { score += 0.2; signals++; }
   if (emphasisFlags.underline_detected) { score += 0.2; signals++; }
-  
+
   // Verbal signals
   const hasCriticalMarker = verbalMarkers.some(m => m.markerType === 'critical');
   const hasWarningMarker = verbalMarkers.some(m => m.markerType === 'warning');
   const hasSkipConsequence = verbalMarkers.some(m => m.markerType === 'skip_consequence');
-  
+
   if (hasCriticalMarker) { score += 0.4; signals++; }
   if (hasWarningMarker) { score += 0.3; signals++; }
   if (hasSkipConsequence) { score += 0.35; signals++; }
-  
+
   // Prosody signals
   if (prosody.tone === 'emphatic' || prosody.tone === 'serious') { score += 0.15; signals++; }
   if (prosody.pacing === 'slow' || prosody.pacing === 'pausing') { score += 0.1; signals++; }
   if (prosody.volume === 'loud') { score += 0.1; signals++; }
-  
+
   // Normalize and determine source
   const confidence = Math.min(1.0, score);
-  
+
   let source: FrameAnalysis['intentSource'] = 'inferred';
-  const hasVisualSignal = emphasisFlags.highlight_detected || emphasisFlags.text_selected || 
-                          emphasisFlags.cursor_pause || emphasisFlags.zoom_focus;
+  const hasVisualSignal = emphasisFlags.highlight_detected || emphasisFlags.text_selected ||
+    emphasisFlags.cursor_pause || emphasisFlags.zoom_focus;
   const hasVerbalSignal = verbalMarkers.length > 0;
-  
+
   if (hasVisualSignal && hasVerbalSignal) {
     source = 'visual_verbal_aligned';
   } else if (hasVerbalSignal) {
@@ -169,10 +169,10 @@ function calculateIntentConfidence(
   } else if (hasVisualSignal) {
     source = 'visual_only';
   }
-  
+
   // Must not skip: 3+ signals OR explicit critical/warning markers
   const mustNotSkip = signals >= 3 || hasCriticalMarker || hasSkipConsequence;
-  
+
   return { confidence, source, mustNotSkip };
 }
 
@@ -182,36 +182,36 @@ serve(async (req) => {
   }
 
   try {
-    const { 
-      frameUrls, 
-      batchSize = 5, 
-      videoDuration = 0, 
-      startIndex = 0, 
-      transcriptContext = '', 
+    const {
+      frameUrls,
+      batchSize = 5,
+      videoDuration = 0,
+      startIndex = 0,
+      transcriptContext = '',
       filmMode = false,
       // EXPORT HARDENING: New options for long video resilience
       allowPartialResults = true,  // Continue on individual frame failures
       timeoutMs = 30000,           // Per-frame timeout
       maxRetries = 2,              // Retries per frame
     } = await req.json();
-    
+
     if (!frameUrls || !Array.isArray(frameUrls)) {
       throw new Error('frameUrls array is required');
     }
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured');
     }
 
     // For long videos (2+ hours = 7200+ seconds), use smaller batch size
     const isLongVideo = videoDuration > 7200;
     const effectiveBatchSize = isLongVideo ? Math.min(batchSize, 3) : batchSize;
-    
+
     console.log(`[extract-frame-text] Processing ${frameUrls.length} frames in batches of ${effectiveBatchSize}, filmMode: ${filmMode}, isLongVideo: ${isLongVideo}, allowPartialResults: ${allowPartialResults}`);
 
     const frameDuration = videoDuration > 0 ? videoDuration / Math.max(frameUrls.length + startIndex, 1) : 10;
-    
+
     // Pre-detect verbal markers from transcript context
     const globalVerbalMarkers = detectVerbalMarkers(transcriptContext);
     console.log(`[extract-frame-text] Found ${globalVerbalMarkers.length} verbal intent markers in transcript context`);
@@ -375,7 +375,7 @@ Respond ONLY in this exact JSON format:
       const batchPromises = batch.map(async (frameUrl: string, batchIndex: number) => {
         const frameIndex = startIndex + i + batchIndex;
         const timestamp = frameIndex * frameDuration;
-        
+
         // EXPORT HARDENING: Retry logic with timeout
         let lastError: Error | null = null;
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -383,16 +383,16 @@ Respond ONLY in this exact JSON format:
             // Create timeout controller
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-            
-            const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
               method: 'POST',
               headers: {
-                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+                'Authorization': `Bearer ${OPENAI_API_KEY}`,
                 'Content-Type': 'application/json',
               },
               signal: controller.signal,
               body: JSON.stringify({
-                model: 'google/gemini-2.5-flash',
+                model: 'gpt-4o',
                 messages: [
                   {
                     role: 'system',
@@ -403,7 +403,7 @@ Respond ONLY in this exact JSON format:
                     content: [
                       {
                         type: 'text',
-                        text: filmMode 
+                        text: filmMode
                           ? `Analyze Frame #${frameIndex + 1} (${Math.floor(timestamp / 60)}:${String(Math.floor(timestamp % 60)).padStart(2, '0')}). Extract cinematography details, emotional weight, gaze analysis, and screenplay annotation. Return JSON only.`
                           : `Analyze Frame #${frameIndex + 1} (${Math.floor(timestamp / 60)}:${String(Math.floor(timestamp % 60)).padStart(2, '0')}). Extract ALL text, detect emphasis, infer instructor intent, check if this step depends on previous steps, and add prosody annotation. ${transcriptContext ? `Transcript context (check for explicit intent markers like "this is important", "don't skip"): "${transcriptContext}"` : ''} Return JSON only.`
                       },
@@ -416,149 +416,149 @@ Respond ONLY in this exact JSON format:
                 ],
               }),
             });
-            
+
             clearTimeout(timeoutId);
 
-          if (!response.ok) {
-            console.error(`[extract-frame-text] Failed to analyze frame ${frameIndex}: ${response.status}`);
-            return null;
-          }
+            if (!response.ok) {
+              console.error(`[extract-frame-text] Failed to analyze frame ${frameIndex}: ${response.status}`);
+              return null;
+            }
 
-          const data = await response.json();
-          const content = data.choices?.[0]?.message?.content || '';
-          
-          try {
-            let jsonStr = content;
-            if (content.includes('```json')) {
-              jsonStr = content.split('```json')[1].split('```')[0].trim();
-            } else if (content.includes('```')) {
-              jsonStr = content.split('```')[1].split('```')[0].trim();
-            }
-            
-            const parsed = JSON.parse(jsonStr);
-            
-            const emphasisFlags = {
-              highlight_detected: parsed.emphasisFlags?.highlight_detected || false,
-              cursor_pause: parsed.emphasisFlags?.cursor_pause || false,
-              zoom_focus: parsed.emphasisFlags?.zoom_focus || false,
-              text_selected: parsed.emphasisFlags?.text_selected || false,
-              lingering_frame: parsed.emphasisFlags?.lingering_frame || false,
-              bold_text: parsed.emphasisFlags?.bold_text || false,
-              underline_detected: parsed.emphasisFlags?.underline_detected || false,
-            };
-            
-            const prosody = {
-              tone: parsed.prosody?.tone || 'neutral',
-              pacing: parsed.prosody?.pacing || 'normal',
-              volume: parsed.prosody?.volume || 'normal',
-              parenthetical: parsed.prosody?.parenthetical || '',
-            };
-            
-            // Calculate confidence based on all signals
-            const { confidence, source, mustNotSkip } = calculateIntentConfidence(
-              emphasisFlags,
-              globalVerbalMarkers,
-              prosody as ProsodyAnnotation
-            );
-            
-            // Calculate emotional weight from all signals
-            const emotionalWeight = Math.min(1.0, 
-              confidence * 0.5 + 
-              (mustNotSkip ? 0.3 : 0) + 
-              (prosody.tone === 'emphatic' || prosody.tone === 'serious' ? 0.1 : 0) +
-              (emphasisFlags.lingering_frame ? 0.1 : 0)
-            );
-            
-            // Parse unspoken nuance if detected
-            let unspokenNuance: UnspokenNuance | undefined = undefined;
-            if (parsed.unspokenNuance && parsed.unspokenNuance.nuanceType && parsed.unspokenNuance.nuanceType !== 'null') {
-              unspokenNuance = {
-                nuanceType: parsed.unspokenNuance.nuanceType,
-                description: parsed.unspokenNuance.description || '',
-                confidence: parsed.unspokenNuance.confidence || 0.7,
-                inferredFrom: parsed.unspokenNuance.inferredFrom || [],
+            const data = await response.json();
+            const content = data.choices?.[0]?.message?.content || '';
+
+            try {
+              let jsonStr = content;
+              if (content.includes('```json')) {
+                jsonStr = content.split('```json')[1].split('```')[0].trim();
+              } else if (content.includes('```')) {
+                jsonStr = content.split('```')[1].split('```')[0].trim();
+              }
+
+              const parsed = JSON.parse(jsonStr);
+
+              const emphasisFlags = {
+                highlight_detected: parsed.emphasisFlags?.highlight_detected || false,
+                cursor_pause: parsed.emphasisFlags?.cursor_pause || false,
+                zoom_focus: parsed.emphasisFlags?.zoom_focus || false,
+                text_selected: parsed.emphasisFlags?.text_selected || false,
+                lingering_frame: parsed.emphasisFlags?.lingering_frame || false,
+                bold_text: parsed.emphasisFlags?.bold_text || false,
+                underline_detected: parsed.emphasisFlags?.underline_detected || false,
               };
-              console.log(`[extract-frame-text] Detected unspoken nuance at frame ${frameIndex}: ${unspokenNuance.nuanceType}`);
+
+              const prosody = {
+                tone: parsed.prosody?.tone || 'neutral',
+                pacing: parsed.prosody?.pacing || 'normal',
+                volume: parsed.prosody?.volume || 'normal',
+                parenthetical: parsed.prosody?.parenthetical || '',
+              };
+
+              // Calculate confidence based on all signals
+              const { confidence, source, mustNotSkip } = calculateIntentConfidence(
+                emphasisFlags,
+                globalVerbalMarkers,
+                prosody as ProsodyAnnotation
+              );
+
+              // Calculate emotional weight from all signals
+              const emotionalWeight = Math.min(1.0,
+                confidence * 0.5 +
+                (mustNotSkip ? 0.3 : 0) +
+                (prosody.tone === 'emphatic' || prosody.tone === 'serious' ? 0.1 : 0) +
+                (emphasisFlags.lingering_frame ? 0.1 : 0)
+              );
+
+              // Parse unspoken nuance if detected
+              let unspokenNuance: UnspokenNuance | undefined = undefined;
+              if (parsed.unspokenNuance && parsed.unspokenNuance.nuanceType && parsed.unspokenNuance.nuanceType !== 'null') {
+                unspokenNuance = {
+                  nuanceType: parsed.unspokenNuance.nuanceType,
+                  description: parsed.unspokenNuance.description || '',
+                  confidence: parsed.unspokenNuance.confidence || 0.7,
+                  inferredFrom: parsed.unspokenNuance.inferredFrom || [],
+                };
+                console.log(`[extract-frame-text] Detected unspoken nuance at frame ${frameIndex}: ${unspokenNuance.nuanceType}`);
+              }
+
+              return {
+                frameIndex,
+                timestamp,
+                text: parsed.text || '',
+                textType: parsed.textType || 'other',
+                emphasisFlags,
+                keyElements: parsed.keyElements || [],
+                instructorIntent: parsed.instructorIntent || '',
+                prosody,
+                intentConfidence: confidence,
+                intentSource: source,
+                verbalIntentMarkers: globalVerbalMarkers,
+                mustNotSkip,
+                dependsOnPrevious: parsed.dependsOnPrevious || false,
+                emotionalWeight,
+                dwellSeconds: parsed.dwellSeconds,
+                sceneChangeDetected: parsed.sceneChangeDetected || false,
+                visualContinuityScore: parsed.visualContinuityScore ?? 1.0,
+                // NEW: Unspoken Expert Nuance
+                unspokenNuance,
+                gazeAnalysis: parsed.gazeAnalysis,
+                // Film mode cinematography fields
+                cinematography: parsed.cinematography || null,
+              } as FrameAnalysis;
+            } catch (parseError) {
+              console.error('[extract-frame-text] Failed to parse AI response for frame', frameIndex, parseError);
+              return {
+                frameIndex,
+                timestamp,
+                text: content,
+                textType: 'other' as const,
+                emphasisFlags: {
+                  highlight_detected: false,
+                  cursor_pause: false,
+                  zoom_focus: false,
+                  text_selected: false,
+                  lingering_frame: false,
+                  bold_text: false,
+                  underline_detected: false,
+                },
+                keyElements: [],
+                instructorIntent: '',
+                prosody: {
+                  tone: 'neutral',
+                  pacing: 'normal',
+                  volume: 'normal',
+                  parenthetical: '',
+                },
+                intentConfidence: 0,
+                intentSource: 'inferred',
+                verbalIntentMarkers: [],
+                mustNotSkip: false,
+                dependsOnPrevious: false,
+                emotionalWeight: 0,
+                sceneChangeDetected: false,
+                visualContinuityScore: 1.0,
+              } as FrameAnalysis;
             }
-            
-            return {
-              frameIndex,
-              timestamp,
-              text: parsed.text || '',
-              textType: parsed.textType || 'other',
-              emphasisFlags,
-              keyElements: parsed.keyElements || [],
-              instructorIntent: parsed.instructorIntent || '',
-              prosody,
-              intentConfidence: confidence,
-              intentSource: source,
-              verbalIntentMarkers: globalVerbalMarkers,
-              mustNotSkip,
-              dependsOnPrevious: parsed.dependsOnPrevious || false,
-              emotionalWeight,
-              dwellSeconds: parsed.dwellSeconds,
-              sceneChangeDetected: parsed.sceneChangeDetected || false,
-              visualContinuityScore: parsed.visualContinuityScore ?? 1.0,
-              // NEW: Unspoken Expert Nuance
-              unspokenNuance,
-              gazeAnalysis: parsed.gazeAnalysis,
-              // Film mode cinematography fields
-              cinematography: parsed.cinematography || null,
-            } as FrameAnalysis;
-          } catch (parseError) {
-            console.error('[extract-frame-text] Failed to parse AI response for frame', frameIndex, parseError);
-            return {
-              frameIndex,
-              timestamp,
-              text: content,
-              textType: 'other' as const,
-              emphasisFlags: {
-                highlight_detected: false,
-                cursor_pause: false,
-                zoom_focus: false,
-                text_selected: false,
-                lingering_frame: false,
-                bold_text: false,
-                underline_detected: false,
-              },
-              keyElements: [],
-              instructorIntent: '',
-              prosody: {
-                tone: 'neutral',
-                pacing: 'normal',
-                volume: 'normal',
-                parenthetical: '',
-              },
-              intentConfidence: 0,
-              intentSource: 'inferred',
-              verbalIntentMarkers: [],
-              mustNotSkip: false,
-              dependsOnPrevious: false,
-              emotionalWeight: 0,
-              sceneChangeDetected: false,
-              visualContinuityScore: 1.0,
-            } as FrameAnalysis;
-          }
           } catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error));
-            
+
             // Check if it's a timeout (aborted)
             if (lastError.name === 'AbortError') {
               console.warn(`[extract-frame-text] Timeout on frame ${frameIndex}, attempt ${attempt + 1}/${maxRetries + 1}`);
             } else {
               console.error(`[extract-frame-text] Error on frame ${frameIndex}, attempt ${attempt + 1}/${maxRetries + 1}:`, lastError.message);
             }
-            
+
             // Wait before retry (exponential backoff)
             if (attempt < maxRetries) {
               await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
             }
           }
         }
-        
+
         // All retries exhausted
         console.error(`[extract-frame-text] Failed frame ${frameIndex} after ${maxRetries + 1} attempts`);
-        
+
         // EXPORT HARDENING: Return placeholder if allowPartialResults is true
         if (allowPartialResults) {
           return {
@@ -594,7 +594,7 @@ Respond ONLY in this exact JSON format:
             ocrFailed: true, // Flag for downstream to know
           } as FrameAnalysis & { ocrFailed?: boolean };
         }
-        
+
         return null;
       });
 
@@ -610,10 +610,10 @@ Respond ONLY in this exact JSON format:
     // Count successes vs failures
     const successCount = results.filter(r => r !== null && !(r as any).ocrFailed).length;
     const failedCount = results.filter(r => r === null || (r as any).ocrFailed).length;
-    
+
     console.log(`[extract-frame-text] Completed: ${successCount} successful, ${failedCount} failed/skipped out of ${frameUrls.length} frames`);
 
-    return new Response(JSON.stringify({ 
+    return new Response(JSON.stringify({
       results,
       meta: {
         totalFrames: frameUrls.length,

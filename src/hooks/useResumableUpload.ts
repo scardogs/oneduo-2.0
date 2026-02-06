@@ -168,8 +168,16 @@ export function useResumableUpload() {
       canResume: true,
     });
 
+    // ROBUSTNESS: Derive project ID and storage endpoint from the main SUPABASE_URL 
+    // This prevents mismatches when multiple projects are used or env vars are misconfigured
     const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
+    const projectId = supabaseUrl.split('//')[1]?.split('.')[0] || import.meta.env.VITE_SUPABASE_PROJECT_ID;
+
+    if (!projectId) {
+      console.error('[TUS] Could not determine project ID from environment');
+      throw new Error('Supabase configuration error: VITE_SUPABASE_URL is missing or malformed.');
+    }
 
     // Get user session for proper auth - TUS requires user access_token (not the publishable key)
     const { data: { session } } = await supabase.auth.getSession();
@@ -181,7 +189,7 @@ export function useResumableUpload() {
 
     const accessToken = session.access_token;
 
-    console.log('[TUS] Starting resumable upload for:', file.name, 'size:', file.size);
+    console.log('[TUS] Starting resumable upload for:', file.name, 'Project:', projectId);
     console.log('[TUS] Using authenticated session:', true);
 
     return new Promise<string>((resolve, reject) => {
@@ -204,19 +212,19 @@ export function useResumableUpload() {
 
         onError: (error) => {
           console.error('[TUS] Upload error:', error);
-          
+
           // Check for 409 Upload-Offset conflict - means stale resume state
           const errorMessage = String(error);
-          const is409Conflict = errorMessage.includes('409') || 
-                                errorMessage.includes('Upload-Offset conflict') ||
-                                errorMessage.includes('Offset');
-          
+          const is409Conflict = errorMessage.includes('409') ||
+            errorMessage.includes('Upload-Offset conflict') ||
+            errorMessage.includes('Offset');
+
           if (is409Conflict) {
             console.log('[TUS] 409 conflict detected - clearing stale state and retrying fresh...');
             // Clear ALL TUS-related state
             clearState();
             localStorage.removeItem(`tus::${file.name}`);
-            
+
             // Try to clear the fingerprinted URL storage that tus-js-client uses
             try {
               const tusKeys = Object.keys(localStorage).filter(k => k.startsWith('tus::'));
@@ -224,7 +232,7 @@ export function useResumableUpload() {
             } catch (e) {
               console.warn('[TUS] Could not clear tus keys:', e);
             }
-            
+
             setProgress(prev => ({
               ...prev,
               phase: 'error',
@@ -234,7 +242,7 @@ export function useResumableUpload() {
             reject(new Error('Upload conflict detected. Please click upload again to retry with a fresh upload.'));
             return;
           }
-          
+
           setProgress(prev => ({
             ...prev,
             phase: 'error',
@@ -283,7 +291,7 @@ export function useResumableUpload() {
 
           // Wait for storage propagation before verifying
           await new Promise(r => setTimeout(r, 2000));
-          
+
           // CRITICAL: Verify the file actually exists in storage before resolving
           // This prevents false "success" when the file wasn't actually saved
           let verified = false;
@@ -293,7 +301,7 @@ export function useResumableUpload() {
               const { data: signedData, error } = await supabase.storage
                 .from('video-uploads')
                 .createSignedUrl(fileName, 60);
-              
+
               if (!error && signedData?.signedUrl) {
                 // Double-check with a HEAD request
                 const headResponse = await fetch(signedData.signedUrl, { method: 'HEAD' });
@@ -322,7 +330,7 @@ export function useResumableUpload() {
             reject(new Error('Upload completed but file not found in storage. Please try again.'));
             return;
           }
-          
+
           console.log('[TUS] Upload verified and complete');
 
           setProgress(prev => ({
@@ -339,13 +347,13 @@ export function useResumableUpload() {
         onShouldRetry: (err, retryAttempt, options) => {
           console.log(`[TUS] Retry attempt ${retryAttempt} after error:`, err);
           const status = (err as any)?.originalResponse?.getStatus?.();
-          
+
           // 409 = Upload-Offset conflict - need fresh upload, don't retry
           if (status === 409) {
             console.log('[TUS] 409 conflict - will not retry, need fresh upload');
             return false;
           }
-          
+
           // Don't retry client errors (except rate limit 429)
           if (status && status >= 400 && status < 500 && status !== 429) {
             return false;
@@ -365,7 +373,7 @@ export function useResumableUpload() {
 
       // Always start fresh - no resume detection. Duplicates are allowed as brand new uploads.
       console.log('[TUS] Starting fresh upload (no resume, duplicates allowed)');
-      
+
       // Start the upload immediately
       setProgress(prev => ({
         ...prev,
@@ -374,7 +382,7 @@ export function useResumableUpload() {
         speed: 'connecting...',
         timeRemaining: 'starting upload...',
       }));
-      
+
       upload.start();
     });
   }, [saveState, clearState, updateSpeed, loadState]);

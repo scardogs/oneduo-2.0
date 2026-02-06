@@ -13,13 +13,13 @@ import type { PreflightResult } from './types';
 export async function runPreflightCheck(): Promise<PreflightResult> {
   try {
     const { data, error } = await supabase.functions.invoke('health-check');
-    
+
     if (error || !data) {
       return { ready: false, issues: ['Could not reach backend services'] };
     }
-    
+
     const issues: string[] = [];
-    
+
     if (data.checks?.database?.status === 'fail') {
       issues.push('Database unavailable');
     }
@@ -32,10 +32,16 @@ export async function runPreflightCheck(): Promise<PreflightResult> {
     if (data.checks?.resend?.status === 'fail') {
       issues.push(`Email service: ${data.checks.resend.message || 'unavailable'}`);
     }
-    
-    return { 
-      ready: data.ready_for_batch === true && issues.length === 0, 
-      issues 
+    if (data.checks?.openai?.status === 'fail') {
+      issues.push(`AI service: ${data.checks.openai.message || 'unavailable'}`);
+    }
+    if (data.checks?.replicate?.status === 'fail') {
+      issues.push(`Frame service: ${data.checks.replicate.message || 'unavailable'}`);
+    }
+
+    return {
+      ready: data.ready_for_batch === true && issues.length === 0,
+      issues
     };
   } catch (err) {
     console.error('[PreflightCheck] Failed:', err);

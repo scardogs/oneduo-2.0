@@ -80,21 +80,21 @@ serve(async (req) => {
 
   try {
     const { frameAnalyses, transcript = [], videoDuration = 0 } = await req.json();
-    
+
     if (!frameAnalyses || !Array.isArray(frameAnalyses)) {
       throw new Error('frameAnalyses array is required');
     }
 
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    if (!OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not configured');
     }
 
     console.log(`[analyze-workflow-sequence] Analyzing ${frameAnalyses.length} frames for workflow patterns`);
 
     // Filter out null frames
     const validFrames = frameAnalyses.filter((f: FrameAnalysis | null) => f !== null) as FrameAnalysis[];
-    
+
     if (validFrames.length === 0) {
       return new Response(JSON.stringify({
         workflows: [],
@@ -128,14 +128,14 @@ serve(async (req) => {
     }));
 
     // Use AI to analyze workflow patterns across frames
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
+        model: 'gpt-4o',
         messages: [
           {
             role: 'system',
@@ -223,9 +223,9 @@ Return JSON with detected workflows and critical steps.`
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content || '';
-    
+
     let analysisResult: Partial<SequenceAnalysisResult>;
-    
+
     try {
       let jsonStr = content;
       if (content.includes('```json')) {
@@ -233,16 +233,16 @@ Return JSON with detected workflows and critical steps.`
       } else if (content.includes('```')) {
         jsonStr = content.split('```')[1].split('```')[0].trim();
       }
-      
+
       const parsed = JSON.parse(jsonStr);
-      
+
       // Calculate additional metrics
       const workflows: WorkflowSequence[] = (parsed.workflows || []).map((w: any, idx: number) => {
         const steps = (w.steps || []).map((s: any, sIdx: number) => {
           const frameIndices = s.frameIndices || [];
           const firstFrame = validFrames.find(f => frameIndices.includes(f.frameIndex));
           const lastFrame = validFrames.filter(f => frameIndices.includes(f.frameIndex)).pop();
-          
+
           return {
             stepNumber: s.stepNumber || sIdx + 1,
             description: s.description || '',
@@ -258,7 +258,7 @@ Return JSON with detected workflows and critical steps.`
             dwellTime: frameIndices.length * (videoDuration / Math.max(validFrames.length, 1)),
           } as WorkflowStep;
         });
-        
+
         return {
           sequenceId: w.sequenceId || `workflow_${idx + 1}`,
           title: w.title || `Workflow ${idx + 1}`,
@@ -268,24 +268,24 @@ Return JSON with detected workflows and critical steps.`
           sequenceWarnings: w.sequenceWarnings || [],
         } as WorkflowSequence;
       });
-      
+
       // Extract critical steps from frame data
       const criticalSteps = validFrames
         .filter(f => f.mustNotSkip || f.intentConfidence > 0.7)
         .map(f => ({
           frameIndex: f.frameIndex,
           timestamp: f.timestamp,
-          reason: f.mustNotSkip 
-            ? 'Multiple signals indicate critical step' 
+          reason: f.mustNotSkip
+            ? 'Multiple signals indicate critical step'
             : `High confidence intent (${(f.intentConfidence * 100).toFixed(0)}%)`,
           confidenceLevel: f.intentSource || 'inferred',
         }));
-      
+
       // Calculate average confidence
       const avgConfidence = validFrames.length > 0
         ? validFrames.reduce((sum, f) => sum + (f.intentConfidence || 0), 0) / validFrames.length
         : 0;
-      
+
       analysisResult = {
         workflows,
         criticalSteps,
@@ -296,10 +296,10 @@ Return JSON with detected workflows and critical steps.`
           averageConfidence: avgConfidence,
         },
       };
-      
+
     } catch (parseError) {
       console.error('[analyze-workflow-sequence] Failed to parse AI response:', parseError);
-      
+
       // Fallback: Build basic workflow from frame data alone
       const criticalSteps = validFrames
         .filter(f => f.mustNotSkip || f.intentConfidence > 0.7)
@@ -309,7 +309,7 @@ Return JSON with detected workflows and critical steps.`
           reason: f.mustNotSkip ? 'Multiple signals' : 'High confidence',
           confidenceLevel: f.intentSource || 'inferred',
         }));
-      
+
       analysisResult = {
         workflows: [],
         criticalSteps,
