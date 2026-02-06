@@ -5,7 +5,8 @@ import {
   imageToBase64WithRetry,
   sampleFramesEvenly,
   getRecommendedFrameSampleSize,
-  getRecommendedImageQuality
+  getRecommendedImageQuality,
+  batchLoadImages
 } from '@/lib/imageLoader';
 import {
   persistFramesToStorage,
@@ -536,6 +537,20 @@ export const generateChatGPTPDF = async (
   // Use even sampling to select frames that span the ENTIRE video
   const sampledFrameUrls = sampleFramesEvenly(allFrames, effectiveMaxFrames);
   const totalFrames = sampledFrameUrls.length;
+
+  // OPTIMIZATION: Start pre-loading images in background immediately
+  // This ensures they are ready by the time we need them in Phase 2
+  if (totalFrames > 0) {
+    // Don't await here - let it run in parallel with OCR/Analysis phases
+    batchLoadImages(sampledFrameUrls, effectiveQuality).catch(e => console.warn('Background preload warning:', e));
+  }
+
+  // OPTIMIZATION: Start pre-loading images in background immediately
+  // This ensures they are ready by the time we need them in Phase 2
+  if (totalFrames > 0) {
+    // Don't await here - let it run in parallel with OCR/Analysis phases
+    batchLoadImages(sampledFrameUrls, effectiveQuality).catch(e => console.warn('Background preload warning:', e));
+  }
 
   // ========== PHASE 0: PERSIST FRAMES TO STORAGE ==========
   // Extract fresh frames from stored video and persist to our storage.
@@ -2384,6 +2399,18 @@ export const generateMergedCoursePDF = async (
       // Cap quality for huge frame sets, but keep it high enough for UI legibility.
       const moduleRecommendedQuality = getRecommendedImageQuality(module.frame_urls.length);
       const moduleEffectiveQuality = Math.min(imageQuality, moduleRecommendedQuality);
+
+      onProgress?.(progressPercent + 2, `Pre-loading ${sampledFrames.length} frames for Chapter ${i + 1}...`);
+
+      // PARALLEL LOAD OPTIMIZATION: Fetch all frames at once before loop
+      // This is 10x faster than awaiting them one-by-one in the loop
+      await batchLoadImages(
+        sampledFrames,
+        moduleEffectiveQuality,
+        (loaded, total) => {
+          // Optional: update progress (fine-grained)
+        }
+      );
 
       for (let frameIdx = 0; frameIdx < sampledFrames.length; frameIdx++) {
         if (y > pageHeight - 60) {

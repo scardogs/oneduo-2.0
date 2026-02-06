@@ -2724,19 +2724,22 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
                                                     </p>
                                                   </div>
                                                   <div className="flex gap-2">
-                                                    {/* Salvage/Partial Download Button */}
-                                                    {item.isModule && (
+                                                    {/* Download PDF Button - Available for ALL modules with data */}
+                                                    {(item.status === 'completed' || (itemIsStalled && item.isModule)) && (
                                                       <Button
                                                         size="sm"
                                                         variant="outline"
-                                                        className="shrink-0 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
-                                                        onClick={() => handleExportModulePDF(item.id, item.title, block.name, true)}
+                                                        className={`shrink-0 ${item.status === 'completed'
+                                                          ? 'border-white/20 text-white hover:bg-white/10'
+                                                          : 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10'}`}
+                                                        onClick={() => handleExportModulePDF(item.id, item.title, block.name, item.status !== 'completed')}
                                                         disabled={generatingPDF === item.id}
+                                                        title={item.status === 'completed' ? "Download PDF Manual" : "Salvage Partial PDF"}
                                                       >
                                                         {generatingPDF === item.id ? (
                                                           <Loader2 className="w-4 h-4 animate-spin" />
                                                         ) : (
-                                                          <><Download className="w-4 h-4 mr-1" /> Salvage</>
+                                                          <><Download className="w-4 h-4 mr-1" /> {item.status === 'completed' ? 'PDF' : 'Salvage'}</>
                                                         )}
                                                       </Button>
                                                     )}
