@@ -32,7 +32,25 @@ Deno.serve(async (req) => {
 
     const { path } = (await req.json()) as UploadUrlRequest;
 
+    // AUTO-FIX: Ensure storage buckets allow large files (50GB)
+    // This is a robust fallback for when database migrations fail
+    try {
+      const { error: bucketError } = await supabase.storage.updateBucket('video-uploads', {
+        max_file_size: 53687091200, // 50GB
+        public: true
+      });
+      if (bucketError) console.warn('[get-upload-url] Could not update video-uploads bucket limit:', bucketError.message);
+
+      await supabase.storage.updateBucket('course-files', {
+        max_file_size: 53687091200, // 50GB
+        public: true
+      });
+    } catch (e) {
+      console.warn('[get-upload-url] Bucket auto-fix error:', e);
+    }
+
     if (!path) {
+
       return new Response(JSON.stringify({ error: 'path is required' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

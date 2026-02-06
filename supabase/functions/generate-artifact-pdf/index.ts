@@ -751,7 +751,8 @@ serve(async (req) => {
       `)
       .eq("artifact_id", artifactId)
       .order("frame_index")
-      .limit(5000);
+      .limit(15000);
+
 
 
     if (framesError) {

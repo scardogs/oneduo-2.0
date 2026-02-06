@@ -474,7 +474,8 @@ serve(async (req) => {
     // Calculate frame count at 3 FPS
     const durationSeconds = artifact.duration_seconds || 30;
     const frameCount = durationSeconds * 3;
-    const framesToProcess = Math.min(frameCount, 5000); // Increased limit from 100
+    const framesToProcess = Math.min(frameCount, 15000); // Increased limit from 5000 to support 1-hour+ videos
+
 
 
     const frames = [];
