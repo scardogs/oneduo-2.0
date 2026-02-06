@@ -24,7 +24,7 @@ export default function Auth() {
   // Determine if this is signup or login based on route
   const isSignup = location.pathname === '/signup';
   const pageTitle = isSignup ? 'Create your OneDuo account' : 'Sign in to OneDuo';
-  const pageDescription = isSignup 
+  const pageDescription = isSignup
     ? "Get started with OneDuo. We'll send a secure link to your email."
     : "No password needed. We'll send a secure link to your email.";
 
@@ -65,8 +65,8 @@ export default function Auth() {
     setIsLoading(true);
 
     try {
-      const redirectUrl = `${window.location.origin}/dashboard`;
-      
+      const redirectUrl = window.location.origin;
+
       const { error: authError } = await supabase.auth.signInWithOtp({
         email: email.trim().toLowerCase(),
         options: {
@@ -162,8 +162,8 @@ export default function Auth() {
                     onCheckedChange={(checked) => setTosAcknowledged(checked === true)}
                     className="mt-0.5"
                   />
-                  <label 
-                    htmlFor="tos-acknowledgment" 
+                  <label
+                    htmlFor="tos-acknowledgment"
                     className="text-sm text-muted-foreground leading-relaxed cursor-pointer"
                   >
                     I agree to the{' '}
