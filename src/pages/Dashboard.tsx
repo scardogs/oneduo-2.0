@@ -1762,7 +1762,16 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
       // This embeds user-uploaded documents (templates, scripts, guides) into the PDF
       // Using parallel loading with concurrency limit for better performance
 
-      const courseFiles = block.courseFiles || [];
+      // Filter out binary/unsupported formats that shouldn't be embedded as text
+      const EXCLUDED_EXTENSIONS = [
+        '.pdf', '.mp4', '.mov', '.avi', '.mkv', '.webm',
+        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.ico',
+        '.zip', '.rar', '.7z', '.exe', '.dll', '.bin'
+      ];
+      const courseFiles = (block.courseFiles || []).filter(file => {
+        const fileName = file.name.toLowerCase();
+        return !EXCLUDED_EXTENSIONS.some(ext => fileName.endsWith(ext));
+      });
       let supplementalFiles: { name: string; content: string; size?: number }[] = [];
       let fileLoadFailures: string[] = [];
 
@@ -2311,10 +2320,10 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
                                   });
                                 }}
                                 className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${block.courses.every(c => selectedCourses.has(c.id))
-                                    ? 'bg-cyan-500 border-cyan-500'
-                                    : block.courses.some(c => selectedCourses.has(c.id))
-                                      ? 'bg-cyan-500/50 border-cyan-500'
-                                      : 'border-white/20 hover:border-white/40'
+                                  ? 'bg-cyan-500 border-cyan-500'
+                                  : block.courses.some(c => selectedCourses.has(c.id))
+                                    ? 'bg-cyan-500/50 border-cyan-500'
+                                    : 'border-white/20 hover:border-white/40'
                                   }`}
                               >
                                 {block.courses.every(c => selectedCourses.has(c.id)) && (
@@ -2389,8 +2398,8 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
                                     </button>
                                   )}
                                   <span className={`px-2 py-0.5 rounded text-[10px] font-medium uppercase tracking-wide shrink-0 ${block.fpsTarget >= 3
-                                      ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-                                      : 'bg-white/10 text-white/50 border border-white/10'
+                                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
+                                    : 'bg-white/10 text-white/50 border border-white/10'
                                     }`}>
                                     {block.fpsTarget} FPS
                                   </span>
@@ -2426,8 +2435,8 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
                                     }}
                                     disabled={generatingPDF === `block-${block.courses[0]?.id}`}
                                     className={`relative w-9 h-9 p-0 text-white ${block.courses[0]?.pdf_revision_pending
-                                        ? 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700'
-                                        : 'bg-gradient-to-r from-[#DC2626] to-[#B91C1C] hover:from-[#B91C1C] hover:to-[#991B1B]'
+                                      ? 'bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700'
+                                      : 'bg-gradient-to-r from-[#DC2626] to-[#B91C1C] hover:from-[#B91C1C] hover:to-[#991B1B]'
                                       }`}
                                     title={block.courses[0]?.pdf_revision_pending ? 'Download Updated OneDuo' : 'Download OneDuo'}
                                   >
@@ -2465,8 +2474,8 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
                                     }}
                                     disabled={togglingShare === block.courses[0].id}
                                     className={`gap-1.5 ${block.courses[0]?.share_enabled
-                                        ? 'border-green-500/30 text-green-400 hover:bg-green-500/10'
-                                        : 'border-white/20 text-white/50 hover:bg-white/10'
+                                      ? 'border-green-500/30 text-green-400 hover:bg-green-500/10'
+                                      : 'border-white/20 text-white/50 hover:bg-white/10'
                                       }`}
                                     title={block.courses[0]?.share_enabled ? 'Public sharing is ON' : 'Public sharing is OFF'}
                                   >
@@ -2556,8 +2565,8 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
                                           <button
                                             onClick={() => toggleCourseSelection(item.id)}
                                             className={`shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center transition-colors ${selectedCourses.has(item.id)
-                                                ? 'bg-cyan-500 border-cyan-500'
-                                                : 'border-white/20 hover:border-white/40'
+                                              ? 'bg-cyan-500 border-cyan-500'
+                                              : 'border-white/20 hover:border-white/40'
                                               }`}
                                           >
                                             {selectedCourses.has(item.id) && (
