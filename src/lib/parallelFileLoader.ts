@@ -1,0 +1,228 @@
+/**
+ * Parallel File Loader with Concurrency Control
+ * Handles batch loading of supplemental files with proper error tracking
+ */
+
+import { supabase } from '@/integrations/supabase/client';
+
+export interface LoadedFile {
+  name: string;
+  content: string;
+  size?: number;
+  success: boolean;
+  error?: string;
+}
+
+export interface FileLoadProgress {
+  loaded: number;
+  total: number;
+  currentFile: string;
+  failed: number;
+  failedFiles: string[];
+}
+
+interface CourseFile {
+  name: string;
+  storagePath: string;
+  size: number;
+}
+
+// Increased concurrency for better performance with large file sets
+const CONCURRENCY_LIMIT = 10;
+const FILE_TIMEOUT_MS = 15000; // 15 seconds per file (reduced for faster failure detection)
+
+/**
+ * Load a single file with timeout protection
+ */
+async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT_MS): Promise<LoadedFile> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  
+  try {
+    const fileName = file.name.toLowerCase();
+    
+    // Download file from storage
+    const { data: fileData, error: downloadError } = await supabase.storage
+      .from('course-files')
+      .download(file.storagePath);
+    
+    clearTimeout(timeoutId);
+    
+    if (downloadError || !fileData) {
+      return {
+        name: file.name,
+        content: '',
+        size: file.size,
+        success: false,
+        error: downloadError?.message || 'Download failed',
+      };
+    }
+    
+    // Extract text based on file type
+    let textContent = '';
+    
+    // Plain text formats
+    const plainTextFormats = ['.txt', '.md', '.csv', '.json', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.xml', '.yaml', '.yml', '.py', '.sh', '.env'];
+    const isPlainText = plainTextFormats.some(ext => fileName.endsWith(ext));
+    
+    if (isPlainText) {
+      textContent = await fileData.text();
+    } else if (fileName.endsWith('.pdf') || fileName.endsWith('.pptx') || fileName.endsWith('.docx')) {
+      // Use server-side extraction for binary formats
+      const fileType = fileName.endsWith('.pdf') ? 'pdf' : 
+                      fileName.endsWith('.pptx') ? 'pptx' : 'docx';
+      
+      try {
+        const { data: extractData, error: extractError } = await supabase.functions.invoke('extract-document-text', {
+          body: { storagePath: file.storagePath, fileType }
+        });
+        
+        if (extractError || !extractData?.text) {
+          return {
+            name: file.name,
+            content: `[${fileType.toUpperCase()} Document: ${file.name}]\n[Text extraction failed. Consider uploading as .txt.]`,
+            size: file.size,
+            success: false,
+            error: extractError?.message || 'Extraction failed',
+          };
+        }
+        
+        textContent = extractData.text;
+      } catch (err) {
+        return {
+          name: file.name,
+          content: `[${fileType.toUpperCase()} Document: ${file.name}]\n[Extraction error]`,
+          size: file.size,
+          success: false,
+          error: err instanceof Error ? err.message : 'Extraction error',
+        };
+      }
+    } else if (fileName.endsWith('.doc')) {
+      return {
+        name: file.name,
+        content: `[Word Document: ${file.name}]\n[Legacy .doc format not supported. Convert to .docx or .txt.]`,
+        size: file.size,
+        success: false,
+        error: 'Legacy format not supported',
+      };
+    } else {
+      // Try reading as text
+      try {
+        textContent = await fileData.text();
+        // Check for binary content
+        if (textContent.includes('\u0000') || textContent.substring(0, 100).match(/[^\x20-\x7E\n\r\t]/g)?.length > 10) {
+          return {
+            name: file.name,
+            content: `[Binary File: ${file.name}]\n[Cannot be embedded as searchable text.]`,
+            size: file.size,
+            success: false,
+            error: 'Binary file',
+          };
+        }
+      } catch {
+        return {
+          name: file.name,
+          content: `[File: ${file.name}]\n[Could not extract text content.]`,
+          size: file.size,
+          success: false,
+          error: 'Read failed',
+        };
+      }
+    }
+    
+    return {
+      name: file.name,
+      content: textContent,
+      size: file.size,
+      success: true,
+    };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    
+    // Check for abort (timeout)
+    if (err instanceof Error && err.name === 'AbortError') {
+      return {
+        name: file.name,
+        content: `[File: ${file.name}]\n[Loading timed out after ${timeoutMs / 1000}s]`,
+        size: file.size,
+        success: false,
+        error: 'Timeout',
+      };
+    }
+    
+    return {
+      name: file.name,
+      content: '',
+      size: file.size,
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Load files in parallel with concurrency limit
+ */
+export async function loadFilesInParallel(
+  files: CourseFile[],
+  onProgress?: (progress: FileLoadProgress) => void,
+  concurrencyLimit: number = CONCURRENCY_LIMIT
+): Promise<LoadedFile[]> {
+  const results: LoadedFile[] = [];
+  const failedFiles: string[] = [];
+  let loaded = 0;
+  
+  // Process in batches
+  for (let i = 0; i < files.length; i += concurrencyLimit) {
+    const batch = files.slice(i, i + concurrencyLimit);
+    
+    // Report progress at start of batch
+    onProgress?.({
+      loaded,
+      total: files.length,
+      currentFile: batch[0]?.name || '',
+      failed: failedFiles.length,
+      failedFiles,
+    });
+    
+    // Load batch in parallel
+    const batchResults = await Promise.all(
+      batch.map(file => loadSingleFile(file))
+    );
+    
+    // Process results
+    for (const result of batchResults) {
+      results.push(result);
+      loaded++;
+      
+      if (!result.success) {
+        failedFiles.push(result.name);
+        console.warn(`Failed to load file: ${result.name} - ${result.error}`);
+      }
+    }
+  }
+  
+  // Final progress update
+  onProgress?.({
+    loaded,
+    total: files.length,
+    currentFile: '',
+    failed: failedFiles.length,
+    failedFiles,
+  });
+  
+  return results;
+}
+
+/**
+ * Generate summary text for failed files
+ */
+export function generateFailureSummary(results: LoadedFile[]): string | null {
+  const failed = results.filter(r => !r.success);
+  if (failed.length === 0) return null;
+  
+  const summary = failed.slice(0, 5).map(f => `• ${f.name}: ${f.error}`).join('\n');
+  const more = failed.length > 5 ? `\n... and ${failed.length - 5} more` : '';
+  
+  return `${failed.length} file(s) could not be loaded:\n${summary}${more}`;
+}
