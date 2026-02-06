@@ -20,12 +20,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  ChevronDown, 
-  ChevronRight, 
-  FileText, 
-  Copy, 
-  Download, 
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Copy,
+  Download,
   Eye,
   CheckCircle,
   XCircle,
@@ -151,7 +151,10 @@ export default function Artifacts() {
   const handleDownloadPDF = async (artifactId: string) => {
     try {
       const { data, error } = await supabase.functions.invoke("generate-artifact-pdf", {
-        body: { artifactId },
+        body: {
+          artifactId,
+          include_unapproved: true // Allow downloading "Draft" PDFs even if not fully verified
+        },
       });
 
       if (error) throw error;
@@ -203,7 +206,7 @@ export default function Artifacts() {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Transform
           </Button>
-          
+
           <div className="flex items-center gap-3 mb-2">
             <FileText className="h-8 w-8 text-primary" />
             <h1 className="text-3xl font-bold">Artifact Origin Log</h1>
@@ -309,7 +312,7 @@ export default function Artifacts() {
                               </div>
                             </TableCell>
                           </TableRow>
-                          
+
                           <CollapsibleContent asChild>
                             <TableRow>
                               <TableCell colSpan={8} className="bg-muted/30">
