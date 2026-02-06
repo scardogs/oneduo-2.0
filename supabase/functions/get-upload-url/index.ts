@@ -53,14 +53,16 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[get-upload-url] Creating signed upload URL for: ${path}`);
-
+    // Create signed upload URL
+    // Some project configurations reject { upsert: true } on signed uploads
+    // We increase expiration to 6 hours to handle extremely slow connections for large videos
     const { data, error } = await supabase.storage
       .from('video-uploads')
-      .createSignedUploadUrl(path, { upsert: true });
+      .createSignedUploadUrl(path, { expiresIn: 60 * 60 * 6 });
 
 
     if (error) {
-      console.error('[get-upload-url] Failed to create signed URL:', error);
+      console.error(`[get-upload-url] Storage error for path ${path}:`, error);
       return new Response(
         JSON.stringify({ error: 'Failed to generate upload URL', details: error.message }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

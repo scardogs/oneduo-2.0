@@ -191,7 +191,10 @@ export function useChunkedUpload() {
           console.log(`[ChunkedUpload] Chunk ${chunkIndex + 1}/${totalChunks} uploaded`);
           resolve(chunkPath);
         } else {
-          reject(new Error(`Chunk upload failed: ${xhr.status} ${xhr.statusText}`));
+          // Read error body for better diagnostics
+          const errorBody = xhr.responseText;
+          console.error(`[ChunkedUpload] Chunk ${chunkIndex + 1} failed with status ${xhr.status}. Body:`, errorBody);
+          reject(new Error(`Chunk upload failed: ${xhr.status} ${xhr.statusText}. Details: ${errorBody}`));
         }
       };
 
@@ -199,8 +202,8 @@ export function useChunkedUpload() {
       xhr.onabort = () => reject(new Error('Upload cancelled'));
 
       xhr.open('PUT', urlData.signedUrl, true);
-      // Remove specific Content-Type - let browser/server handle it or use default
-      // Some Supabase configurations reject signed uploads with explicit Content-Type if not pre-signed
+      // Explicitly set to application/octet-stream for signed binary uploads
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
       xhr.send(chunk);
 
     });
