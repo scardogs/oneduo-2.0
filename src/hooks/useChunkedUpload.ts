@@ -13,7 +13,8 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB chunks (more reliable than 500MB)
+const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunks (very safe, avoids 50MB default limits)
+
 
 const MAX_RETRIES = 3;
 

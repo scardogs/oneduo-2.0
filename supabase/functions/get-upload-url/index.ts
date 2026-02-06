@@ -32,21 +32,30 @@ Deno.serve(async (req) => {
 
     const { path } = (await req.json()) as UploadUrlRequest;
 
-    // AUTO-FIX: Ensure storage buckets allow large files (50GB)
-    // This is a robust fallback for when database migrations fail
+    // Aggressively ensure storage buckets allow large files (50GB)
+    let bucketInfo = {};
     try {
-      const { error: bucketError } = await supabase.storage.updateBucket('video-uploads', {
-        max_file_size: 53687091200, // 50GB
-        public: true
-      });
-      if (bucketError) console.warn('[get-upload-url] Could not update video-uploads bucket limit:', bucketError.message);
+      const { data: vBucket } = await supabase.storage.getBucket('video-uploads');
+      if (!vBucket || vBucket.max_file_size < 53687091200) {
+        console.log('[get-upload-url] Updating video-uploads bucket limit to 50GB...');
+        await supabase.storage.updateBucket('video-uploads', {
+          max_file_size: 53687091200, // 50GB
+          public: true
+        });
+      }
 
-      await supabase.storage.updateBucket('course-files', {
-        max_file_size: 53687091200, // 50GB
-        public: true
-      });
+      const { data: cBucket } = await supabase.storage.getBucket('course-files');
+      if (!cBucket || cBucket.max_file_size < 53687091200) {
+        await supabase.storage.updateBucket('course-files', {
+          max_file_size: 53687091200, // 50GB
+          public: true
+        });
+      }
+
+      const { data: finalV } = await supabase.storage.getBucket('video-uploads');
+      bucketInfo = { id: finalV?.id, maxSize: finalV?.max_file_size, public: finalV?.public };
     } catch (e) {
-      console.warn('[get-upload-url] Bucket auto-fix error:', e);
+      console.warn('[get-upload-url] Bucket config warning:', e);
     }
 
     if (!path) {
@@ -91,6 +100,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         path,
         signedUrl: data.signedUrl,
+        bucketStatus: bucketInfo
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
