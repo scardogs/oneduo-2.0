@@ -110,7 +110,8 @@ async function getManifest(supabase: SupabaseClient, videoUrl: string): Promise<
 async function extractFramesViaStreamingProxy(
   supabase: SupabaseClient,
   courseId: string,
-  manifestPath: string
+  manifestPath: string,
+  jobId: string
 ): Promise<string[]> {
   const REPLICATE_API_KEY = Deno.env.get('REPLICATE_API_KEY');
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -237,7 +238,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const jobId = `course-${courseId.slice(0, 8)}`;
+    const jobId = courseId;
 
     // Get course info
     const { data: course, error: courseError } = await supabase
@@ -295,7 +296,7 @@ Deno.serve(async (req) => {
     }).eq('id', courseId);
 
     // Use streaming proxy to extract frames from the full reassembled video
-    const allFrames = await extractFramesViaStreamingProxy(supabase, courseId, manifestPath);
+    const allFrames = await extractFramesViaStreamingProxy(supabase, courseId, manifestPath, jobId);
 
     // Save results to course
     await supabase.from('courses').update({

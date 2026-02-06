@@ -67,11 +67,11 @@ async function logJobEvent(
 
 // Generate a job ID from course/module IDs for consistent logging
 function getJobIdForCourse(courseId: string): string {
-  return `course-${courseId.slice(0, 8)}`;
+  return courseId;
 }
 
-function getJobIdForModule(courseId: string, moduleNumber: number): string {
-  return `module-${courseId.slice(0, 8)}-m${moduleNumber}`;
+function getJobIdForModule(courseId: string, _moduleNumber: number): string {
+  return courseId;
 }
 
 // Generate unique worker ID for lease tracking
