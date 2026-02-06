@@ -37,17 +37,17 @@ const FILE_TIMEOUT_MS = 15000; // 15 seconds per file (reduced for faster failur
 async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT_MS): Promise<LoadedFile> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  
+
   try {
     const fileName = file.name.toLowerCase();
-    
+
     // Download file from storage
     const { data: fileData, error: downloadError } = await supabase.storage
       .from('course-files')
       .download(file.storagePath);
-    
+
     clearTimeout(timeoutId);
-    
+
     if (downloadError || !fileData) {
       return {
         name: file.name,
@@ -57,26 +57,26 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
         error: downloadError?.message || 'Download failed',
       };
     }
-    
+
     // Extract text based on file type
     let textContent = '';
-    
+
     // Plain text formats
     const plainTextFormats = ['.txt', '.md', '.csv', '.json', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.xml', '.yaml', '.yml', '.py', '.sh', '.env'];
     const isPlainText = plainTextFormats.some(ext => fileName.endsWith(ext));
-    
+
     if (isPlainText) {
       textContent = await fileData.text();
     } else if (fileName.endsWith('.pdf') || fileName.endsWith('.pptx') || fileName.endsWith('.docx')) {
       // Use server-side extraction for binary formats
-      const fileType = fileName.endsWith('.pdf') ? 'pdf' : 
-                      fileName.endsWith('.pptx') ? 'pptx' : 'docx';
-      
+      const fileType = fileName.endsWith('.pdf') ? 'pdf' :
+        fileName.endsWith('.pptx') ? 'pptx' : 'docx';
+
       try {
         const { data: extractData, error: extractError } = await supabase.functions.invoke('extract-document-text', {
           body: { storagePath: file.storagePath, fileType }
         });
-        
+
         if (extractError || !extractData?.text) {
           return {
             name: file.name,
@@ -86,7 +86,7 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
             error: extractError?.message || 'Extraction failed',
           };
         }
-        
+
         textContent = extractData.text;
       } catch (err) {
         return {
@@ -111,12 +111,13 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
         textContent = await fileData.text();
         // Check for binary content
         if (textContent.includes('\u0000') || textContent.substring(0, 100).match(/[^\x20-\x7E\n\r\t]/g)?.length > 10) {
+          // Return placeholder for binary files - don't fail, just note it
           return {
             name: file.name,
-            content: `[Binary File: ${file.name}]\n[Cannot be embedded as searchable text.]`,
+            content: `[File: ${file.name}]\n[Binary/unsupported format - file reference included but content cannot be embedded as text]`,
             size: file.size,
-            success: false,
-            error: 'Binary file',
+            success: true, // Changed to true so it doesn't error out
+            error: undefined,
           };
         }
       } catch {
@@ -129,7 +130,7 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
         };
       }
     }
-    
+
     return {
       name: file.name,
       content: textContent,
@@ -138,7 +139,7 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
     };
   } catch (err) {
     clearTimeout(timeoutId);
-    
+
     // Check for abort (timeout)
     if (err instanceof Error && err.name === 'AbortError') {
       return {
@@ -149,7 +150,7 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
         error: 'Timeout',
       };
     }
-    
+
     return {
       name: file.name,
       content: '',
@@ -171,11 +172,11 @@ export async function loadFilesInParallel(
   const results: LoadedFile[] = [];
   const failedFiles: string[] = [];
   let loaded = 0;
-  
+
   // Process in batches
   for (let i = 0; i < files.length; i += concurrencyLimit) {
     const batch = files.slice(i, i + concurrencyLimit);
-    
+
     // Report progress at start of batch
     onProgress?.({
       loaded,
@@ -184,24 +185,24 @@ export async function loadFilesInParallel(
       failed: failedFiles.length,
       failedFiles,
     });
-    
+
     // Load batch in parallel
     const batchResults = await Promise.all(
       batch.map(file => loadSingleFile(file))
     );
-    
+
     // Process results
     for (const result of batchResults) {
       results.push(result);
       loaded++;
-      
+
       if (!result.success) {
         failedFiles.push(result.name);
         console.warn(`Failed to load file: ${result.name} - ${result.error}`);
       }
     }
   }
-  
+
   // Final progress update
   onProgress?.({
     loaded,
@@ -210,7 +211,7 @@ export async function loadFilesInParallel(
     failed: failedFiles.length,
     failedFiles,
   });
-  
+
   return results;
 }
 
@@ -220,9 +221,9 @@ export async function loadFilesInParallel(
 export function generateFailureSummary(results: LoadedFile[]): string | null {
   const failed = results.filter(r => !r.success);
   if (failed.length === 0) return null;
-  
+
   const summary = failed.slice(0, 5).map(f => `• ${f.name}: ${f.error}`).join('\n');
   const more = failed.length > 5 ? `\n... and ${failed.length - 5} more` : '';
-  
+
   return `${failed.length} file(s) could not be loaded:\n${summary}${more}`;
 }
