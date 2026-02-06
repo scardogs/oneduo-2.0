@@ -580,8 +580,10 @@ serve(async (req) => {
       previousAnalysis = currentAnalysis;
     }
 
-    // Insert frames in batches
-    const batchSize = 25;
+    // Insert frames in larger batches for massive performance gain
+    const batchSize = 500;
+    console.log(`[OneDuo] Bulk inserting ${frames.length} frames in batches of ${batchSize}...`);
+
     for (let i = 0; i < frames.length; i += batchSize) {
       const batch = frames.slice(i, i + batchSize);
       const { error: insertError } = await supabase
@@ -589,8 +591,12 @@ serve(async (req) => {
         .insert(batch);
 
       if (insertError) {
-        console.error("[OneDuo] Frame insert error:", insertError);
+        console.error(`[OneDuo] Frame insert error at index ${i}:`, insertError);
         throw insertError;
+      }
+
+      if (i % 2000 === 0) {
+        console.log(`[OneDuo] Progress: ${Math.round((i / frames.length) * 100)}% frames saved...`);
       }
     }
 
