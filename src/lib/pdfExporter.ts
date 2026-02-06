@@ -806,12 +806,12 @@ export const generateChatGPTPDF = async (
   pdf.setFontSize(10);
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(150, 100, 0);
-  pdf.text('[TIMER] GPS PROGRESS FORMAT:', margin + 5, y);
+  pdf.text('[TIMER] GPS FORMAT:', margin + 5, y);
   y += 6;
   pdf.setFontSize(9);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(80, 60, 0);
-  pdf.text('[====-----] XX% | COMPLETED: [previous step] | CURRENT: -> [active step] | UP NEXT: [future step]', margin + 5, y);
+  pdf.text('[====-----] XX%  |  COMPLETED: [previous]  |  CURRENT: -> [active]  |  UP NEXT: [future]', margin + 5, y);
   y += 14;
 
   // ========== PAGE 1: TITLE PAGE & MASTER FORMAT ==========
