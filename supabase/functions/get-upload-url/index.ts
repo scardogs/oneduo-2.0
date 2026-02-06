@@ -56,7 +56,8 @@ Deno.serve(async (req) => {
 
     const { data, error } = await supabase.storage
       .from('video-uploads')
-      .createSignedUploadUrl(path);
+      .createSignedUploadUrl(path, { upsert: true });
+
 
     if (error) {
       console.error('[get-upload-url] Failed to create signed URL:', error);

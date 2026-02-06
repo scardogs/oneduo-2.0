@@ -13,7 +13,8 @@
 import { useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-const CHUNK_SIZE = 500 * 1024 * 1024; // 500MB chunks
+const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB chunks (more reliable than 500MB)
+
 const MAX_RETRIES = 3;
 
 export interface ChunkedUploadProgress {
@@ -198,8 +199,10 @@ export function useChunkedUpload() {
       xhr.onabort = () => reject(new Error('Upload cancelled'));
 
       xhr.open('PUT', urlData.signedUrl, true);
-      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      // Remove specific Content-Type - let browser/server handle it or use default
+      // Some Supabase configurations reject signed uploads with explicit Content-Type if not pre-signed
       xhr.send(chunk);
+
     });
   };
 
@@ -261,7 +264,7 @@ export function useChunkedUpload() {
         }
 
         const chunk = chunks[i];
-        
+
         // Skip already uploaded chunks (resume support)
         if (chunk.uploaded && chunk.path) {
           console.log(`[ChunkedUpload] Skipping chunk ${i + 1}/${totalChunks} (already uploaded)`);
@@ -348,7 +351,7 @@ export function useChunkedUpload() {
       // The processing pipeline will use the first chunk URL directly
       // (External services like Replicate can stream the chunk without needing a merged file)
       let videoUrl: string;
-      
+
       if (mergeData.mode === 'chunked-manifest-v3' && mergeData.firstChunkUrl) {
         // Large file: use the signed URL for the first chunk
         // Note: This works because video headers are in the first chunk

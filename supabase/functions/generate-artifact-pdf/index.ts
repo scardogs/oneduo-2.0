@@ -750,7 +750,9 @@ serve(async (req) => {
         )
       `)
       .eq("artifact_id", artifactId)
-      .order("frame_index");
+      .order("frame_index")
+      .limit(5000);
+
 
     if (framesError) {
       console.error("Frames fetch error:", framesError);
