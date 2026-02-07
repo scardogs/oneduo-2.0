@@ -689,17 +689,18 @@ export const generateChatGPTPDF = async (
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 0, 0);
   const titleLines = pdf.splitTextToSize(course.title || "Untitled Session", contentWidth);
-  pdf.text(titleLines, margin, y + 10);
+  pdf.text(titleLines, pageWidth / 2, y + 10, { align: 'center' });
   y += 20 + (titleLines.length * 8);
 
   pdf.setFontSize(12);
   pdf.setFont('helvetica', 'normal');
-  pdf.text(`Session Date: ${course.created_at ? new Date(course.created_at).toLocaleDateString() : new Date().toLocaleDateString()}`, margin, y);
+  pdf.text(`Session Date: ${course.created_at ? new Date(course.created_at).toLocaleDateString() : new Date().toLocaleDateString()}`, pageWidth / 2, y, { align: 'center' });
   y += 8;
-  pdf.text(`Speaker(s): Not Specified`, margin, y);
-  y += 8;
+  pdf.text(`Speaker(s): Not Specified`, pageWidth / 2, y, { align: 'center' });
+  y += 12;
   const sourceUrl = course.video_url || "N/A";
-  pdf.text(`Source URL: ${sourceUrl.substring(0, 60)}${sourceUrl.length > 60 ? '...' : ''}`, margin, y);
+  const sourceText = `Source URL: ${sourceUrl.substring(0, 60)}${sourceUrl.length > 60 ? '...' : ''}`;
+  pdf.text(sourceText, pageWidth / 2, y, { align: 'center' });
   y += 25;
 
   pdf.setFontSize(18);
@@ -1698,7 +1699,7 @@ export const generateMergedCoursePDF = async (
   pdf.setFont('helvetica', 'bold');
   pdf.setTextColor(0, 0, 0);
   const titleLines = pdf.splitTextToSize(safe(mergedCourse.title), contentWidth);
-  pdf.text(titleLines, margin, y + 20);
+  pdf.text(titleLines, pageWidth / 2, y + 20, { align: 'center' });
 
   y = 60 + (titleLines.length * 12);
 
@@ -1706,19 +1707,19 @@ export const generateMergedCoursePDF = async (
   pdf.setFontSize(14);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(80, 80, 80);
-  pdf.text(safe('MASTER COURSE ORIGIN LOG - ONE DUO ORIGIN'), margin, y);
+  pdf.text(safe('MASTER COURSE ORIGIN LOG - ONE DUO ORIGIN'), pageWidth / 2, y, { align: 'center' });
   y += 15;
 
   // Chapter count
   pdf.setFontSize(12);
   pdf.setTextColor(100, 100, 100);
-  pdf.text(safe(`${mergedCourse.modules.length} Chapters (Modules) | Verbatim Transcripts Included`), margin, y);
+  pdf.text(safe(`${mergedCourse.modules.length} Chapters (Modules) | Verbatim Transcripts Included`), pageWidth / 2, y, { align: 'center' });
   y += 8;
 
   // Total duration
   const totalDuration = mergedCourse.modules.reduce((sum, m) => sum + (m.video_duration_seconds || 0), 0);
   if (totalDuration > 0) {
-    pdf.text(safe(`Total Duration: ${formatTime(totalDuration)}`), margin, y);
+    pdf.text(safe(`Total Duration: ${formatTime(totalDuration)}`), pageWidth / 2, y, { align: 'center' });
     y += 15;
   }
 
