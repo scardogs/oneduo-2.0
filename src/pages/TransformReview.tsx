@@ -10,12 +10,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { 
-  ArrowLeft, 
-  FileText, 
-  Shield, 
-  AlertTriangle, 
-  CheckCircle, 
+import {
+  ArrowLeft,
+  FileText,
+  Shield,
+  AlertTriangle,
+  CheckCircle,
   XCircle,
   Download,
   Clock,
@@ -167,6 +167,36 @@ export default function TransformReview() {
     }
   };
 
+  const stats = {
+    total: frames?.length || 0,
+    high: frames?.filter(f => f.confidence_level === "HIGH").length || 0,
+    medium: frames?.filter(f => f.confidence_level === "MEDIUM").length || 0,
+    low: frames?.filter(f => f.confidence_level === "LOW").length || 0,
+    critical: frames?.filter(f => f.is_critical).length || 0,
+    needsVerification: frames?.filter(f => needsVerification(f)).length || 0,
+    approved: frames?.filter(f => getApprovalStatus(f) === "approved").length || 0,
+    rejected: frames?.filter(f => getApprovalStatus(f) === "rejected").length || 0,
+  };
+
+  const canGeneratePDF = !hasPendingDecisions && stats.needsVerification === 0;
+
+  // Auto-open Verification Gate for first critical frame that needs verification
+  // This implements the patent's "sovereignty check" - forcing human review
+  React.useEffect(() => {
+    if (!autoOpenedGate && frames && frames.length > 0) {
+      const firstCriticalUnapproved = frames.find(f => needsVerification(f));
+      if (firstCriticalUnapproved) {
+        setSelectedFrame(firstCriticalUnapproved);
+        setVerificationOpen(true);
+        setAutoOpenedGate(true);
+        toast.info(
+          `${stats.needsVerification} critical step(s) require your approval before PDF generation`,
+          { duration: 5000 }
+        );
+      }
+    }
+  }, [frames, autoOpenedGate, stats.needsVerification]);
+
   if (artifactLoading || framesLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -198,35 +228,11 @@ export default function TransformReview() {
     );
   }
 
-  const stats = {
-    total: frames?.length || 0,
-    high: frames?.filter(f => f.confidence_level === "HIGH").length || 0,
-    medium: frames?.filter(f => f.confidence_level === "MEDIUM").length || 0,
-    low: frames?.filter(f => f.confidence_level === "LOW").length || 0,
-    critical: frames?.filter(f => f.is_critical).length || 0,
-    needsVerification: frames?.filter(f => needsVerification(f)).length || 0,
-    approved: frames?.filter(f => getApprovalStatus(f) === "approved").length || 0,
-    rejected: frames?.filter(f => getApprovalStatus(f) === "rejected").length || 0,
-  };
 
-  const canGeneratePDF = !hasPendingDecisions && stats.needsVerification === 0;
-  
-  // Auto-open Verification Gate for first critical frame that needs verification
-  // This implements the patent's "sovereignty check" - forcing human review
-  React.useEffect(() => {
-    if (!autoOpenedGate && frames && frames.length > 0) {
-      const firstCriticalUnapproved = frames.find(f => needsVerification(f));
-      if (firstCriticalUnapproved) {
-        setSelectedFrame(firstCriticalUnapproved);
-        setVerificationOpen(true);
-        setAutoOpenedGate(true);
-        toast.info(
-          `${stats.needsVerification} critical step(s) require your approval before PDF generation`,
-          { duration: 5000 }
-        );
-      }
-    }
-  }, [frames, autoOpenedGate, stats.needsVerification]);
+
+
+
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -237,7 +243,7 @@ export default function TransformReview() {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Transform
           </Button>
-          
+
           <div className="flex items-start justify-between">
             <div>
               <h1 className="text-2xl font-bold">{artifact.video_title}</h1>
@@ -249,8 +255,8 @@ export default function TransformReview() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-block">
-                    <Button 
-                      onClick={handleGeneratePDF} 
+                    <Button
+                      onClick={handleGeneratePDF}
                       disabled={generatingPDF || !canGeneratePDF}
                     >
                       {!canGeneratePDF ? (
@@ -265,8 +271,8 @@ export default function TransformReview() {
                 {!canGeneratePDF && (
                   <TooltipContent>
                     <p>
-                      {hasPendingDecisions 
-                        ? "Lock all reasoning decisions before generating PDF" 
+                      {hasPendingDecisions
+                        ? "Lock all reasoning decisions before generating PDF"
                         : "Review all critical frames before generating PDF"}
                     </p>
                   </TooltipContent>
@@ -352,15 +358,14 @@ export default function TransformReview() {
                       return (
                         <div
                           key={frame.id}
-                          className={`p-4 border rounded-lg transition-colors ${
-                            status === "rejected" 
-                              ? "border-red-500/50 bg-red-500/5 opacity-50"
-                              : status === "approved"
+                          className={`p-4 border rounded-lg transition-colors ${status === "rejected"
+                            ? "border-red-500/50 bg-red-500/5 opacity-50"
+                            : status === "approved"
                               ? "border-green-500/50 bg-green-500/5"
                               : requiresVerification
-                              ? "border-amber-500/50 bg-amber-500/5"
-                              : "hover:bg-muted/50"
-                          }`}
+                                ? "border-amber-500/50 bg-amber-500/5"
+                                : "hover:bg-muted/50"
+                            }`}
                         >
                           <div className="flex items-start gap-4">
                             {/* Frame Thumbnail Placeholder */}
@@ -376,7 +381,7 @@ export default function TransformReview() {
                                 <span className="text-sm text-muted-foreground">
                                   {formatTimestamp(frame.timestamp_ms)}
                                 </span>
-                                
+
                                 {/* Confidence Badge */}
                                 <Badge
                                   className={`${getConfidenceColor(frame.confidence_level)} text-white`}
@@ -485,8 +490,8 @@ export default function TransformReview() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <ReasoningLogPanel 
-                  artifactId={artifactId!} 
+                <ReasoningLogPanel
+                  artifactId={artifactId!}
                   onPendingChange={setHasPendingDecisions}
                 />
               </CardContent>

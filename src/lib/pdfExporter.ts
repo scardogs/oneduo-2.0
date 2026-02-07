@@ -886,28 +886,35 @@ export const generateChatGPTPDF = async (
   y += 10;
 
   pdf.setFont('courier', 'normal');
-  pdf.setFontSize(8); // SHRUNK for high-density "Thinking Layer" look
+  pdf.setFontSize(11); // INCREASED font size for better readability
   pdf.setTextColor(30, 30, 30);
 
-  const transcriptLines: string[] = [];
   transcript.forEach((seg: any) => {
     const ts = formatTime(seg.start);
     const speaker = seg.speaker || "Speaker";
-    const text = (seg.text || "").replace(/[()\\]/g, '');
-    const line = `[${ts}] ${speaker}: ${text}`;
-    // Wrap to fit page width
-    const splitLine = pdf.splitTextToSize(line, contentWidth);
-    transcriptLines.push(...splitLine);
-  });
+    // Sanitize and replace characters that cause PDF encoding issues
+    const rawText = seg.text || "";
+    // Standardize to ASCII-safe text to prevent crashes
+    const sanitizedText = sanitizePdfText(rawText);
 
-  transcriptLines.forEach((line) => {
-    if (y > pageHeight - 20) {
-      addPageWithHeaders();
-      pdf.setFont('courier', 'normal');
-      pdf.setFontSize(8);
-    }
-    pdf.text(line, margin, y);
-    y += 4.0; // Tighter leading for 8pt font
+    const label = `[${ts}] ${speaker}: `;
+    const wrappedLabel = pdf.splitTextToSize(label, contentWidth);
+
+    // Add small gap between segments for readability
+    if (y > margin + 10) y += 4;
+
+    const fullLine = `${label}${sanitizedText}`;
+    const splitLines = pdf.splitTextToSize(fullLine, contentWidth);
+
+    splitLines.forEach((line) => {
+      if (y > pageHeight - 20) {
+        addPageWithHeaders();
+        pdf.setFont('courier', 'normal');
+        pdf.setFontSize(11);
+      }
+      pdf.text(line, margin, y);
+      y += 6.0; // Proportional leading for 11pt font
+    });
   });
 
   y += 10;
