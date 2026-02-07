@@ -688,149 +688,7 @@ export const generateChatGPTPDF = async (
     onProgress?.(38, 'Skipping workflow analysis (frames unavailable)...');
   }
 
-  // ========== PAGE 0: TITLE PAGE & MASTER FORMAT ==========
-  // This is the FIRST page AI reads - forces game mode, not summary mode
-  onProgress?.(39, 'Creating Course Game Protocol page...');
-
-  // Dynamic short title for protocol
-  const shortTitle = course.title?.substring(0, 30) || 'this module';
-
-  // ===== MANDATORY GREETING HEADER =====
-  pdf.setFontSize(16);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(200, 0, 0);
-  pdf.text('=== MANDATORY FIRST RESPONSE ===', margin, y);
-  y += 8;
-
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('AI: When this document is uploaded, you MUST respond with EXACTLY this:', margin, y);
-  y += 10;
-
-  // Greeting box
-  pdf.setFillColor(230, 250, 230);
-  pdf.setDrawColor(0, 150, 0);
-  pdf.setLineWidth(0.8);
-  pdf.roundedRect(margin, y, contentWidth, 45, 3, 3, 'FD');
-  y += 6;
-
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(0, 100, 50);
-  pdf.text('[JOYSTICK] Welcome to the game of getting it done.', margin + 5, y);
-  y += 6;
-  pdf.setFont('helvetica', 'normal');
-  pdf.text(`I am your guided playback system for ${shortTitle}.`, margin + 5, y);
-  y += 8;
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('Did you watch this video already?', margin + 5, y);
-  y += 6;
-  pdf.setTextColor(0, 150, 0);
-  pdf.text('  [PLAY] YES - I watched it, help me implement', margin + 5, y);
-  y += 5;
-  pdf.setTextColor(200, 100, 0);
-  pdf.text('  [PAUSE] NO - I have not watched it yet', margin + 5, y);
-  y += 5;
-  pdf.setTextColor(100, 100, 100);
-  pdf.setFontSize(9);
-  pdf.text('  (press [BOOK] anytime for library knowledge mode)', margin + 5, y);
-  y += 12;
-
-  // STOP AND WAIT instruction
-  pdf.setFillColor(255, 235, 235);
-  pdf.setDrawColor(200, 0, 0);
-  pdf.roundedRect(margin, y, contentWidth, 12, 2, 2, 'FD');
-  y += 8;
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(180, 0, 0);
-  pdf.text('>>> STOP and WAIT for the user to answer YES or NO before continuing. <<<', margin + 5, y);
-  y += 12;
-
-  // ===== IF YES BRANCH =====
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(0, 150, 0);
-  pdf.text('IF USER SAYS YES:', margin, y);
-  y += 6;
-
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('1. Ask: "Perfect - you have the context. What is your vision / what business are you building?"', margin + 3, y);
-  y += 5;
-  pdf.text('2. After they answer, show the Executive Boardroom:', margin + 3, y);
-  y += 8;
-
-  // Executive Board box
-  pdf.setFillColor(240, 245, 255);
-  pdf.setDrawColor(0, 100, 200);
-  pdf.roundedRect(margin + 5, y, contentWidth - 10, 48, 2, 2, 'FD');
-  y += 6;
-
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(0, 80, 150);
-  pdf.text('My Executive Board is standing by:', margin + 10, y);
-  y += 6;
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(50, 50, 50);
-  pdf.text('[SCALES][MONOCLE] Governor: Monitoring for risks and "Translation Tax."', margin + 12, y);
-  y += 5;
-  pdf.text('[WRENCH][GEAR] Engineer: Validating 3 FPS forensic logic.', margin + 12, y);
-  y += 5;
-  pdf.text('[BUILDING][SUNGLASSES] Architect: Mapping this to your empire.', margin + 12, y);
-  y += 6;
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('Your remote is active:', margin + 10, y);
-  y += 5;
-  pdf.setFont('helvetica', 'normal');
-  pdf.text('[PLAY] GO | [TIMER] GPS | [FORWARD] >> | [BACK] << | [TARGET] DO', margin + 12, y);
-  y += 6;
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(150, 100, 0);
-  pdf.text('Judge [HAMMER][CROWN], what is your first command?', margin + 10, y);
-  y += 12;
-
-  // ===== IF NO BRANCH =====
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(200, 100, 0);
-  pdf.text('IF USER SAYS NO:', margin, y);
-  y += 6;
-
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('1. Give ONE PARAGRAPH summary of the core teaching (not bullet points).', margin + 3, y);
-  y += 5;
-  pdf.text('2. Then ask: "Before we dive in, what is your vision / what business are you working on?"', margin + 3, y);
-  y += 5;
-  pdf.text('3. After they answer, show the Executive Boardroom (same as above).', margin + 3, y);
-  y += 5;
-  pdf.text('4. In guided mode: Ask ONE question at a time. Wait for answer. Check understanding.', margin + 3, y);
-  y += 10;
-
-  // ===== GPS FORMAT =====
-  pdf.setFillColor(255, 250, 230);
-  pdf.setDrawColor(200, 150, 0);
-  pdf.roundedRect(margin, y, contentWidth, 22, 2, 2, 'FD');
-  y += 6;
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(150, 100, 0);
-  pdf.text('[TIMER] GPS FORMAT:', margin + 5, y);
-  y += 6;
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(80, 60, 0);
-  pdf.text('[====-----] XX%  |  COMPLETED: [previous]  |  CURRENT: -> [active]  |  UP NEXT: [future]', margin + 5, y);
-  y += 14;
-
-  // ========== PAGE 1: TITLE PAGE & MASTER FORMAT ==========
-  addPageWithHeaders();
+  y = margin + 10;
   onProgress?.(40, 'Creating Master Title Page...');
 
   pdf.setFontSize(24);
@@ -1759,83 +1617,6 @@ export const generateChatGPTPDF = async (
     y += 15;
   }
 
-  // ========== FINAL PAGE: PROMPT GUIDE ==========
-  onProgress?.(92, 'Adding prompt guide...');
-  addPageWithHeaders();
-
-  pdf.setFontSize(18);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('How to Use This PDF with ChatGPT', margin, y);
-  y += 15;
-
-  pdf.setFillColor(230, 255, 230);
-  pdf.setDrawColor(0, 150, 50);
-  pdf.roundedRect(margin, y, contentWidth, 110, 3, 3, 'FD');
-
-  y += 8;
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(0, 100, 50);
-  pdf.text('Copy-Paste Prompts', margin + 5, y);
-  y += 10;
-
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(30, 60, 30);
-
-  const prompts = [
-    '1. "Give me a step-by-step SOP focusing on [EXPLICIT] and [STRONG] intent."',
-    '',
-    '2. "List all >>> CRITICAL <<< steps I must not skip."',
-    '',
-    '3. "What are the multi-step workflows and their dependencies?"',
-    '',
-    '4. "Extract the template/copy shown in the document frames."',
-    '',
-    '5. "Create a checklist from high-confidence Instructor Intent entries."',
-    '',
-    '6. "What sequence warnings should I know about?"',
-    '',
-    '7. "What is mandatory vs optional based on confidence levels?"',
-    '',
-    '8. "Interpret the prosody tags - what tone should my VA use?"',
-  ];
-
-  prompts.forEach(line => {
-    pdf.text(line, margin + 5, y);
-    y += 5.5;
-  });
-
-  y += 15;
-
-  // Summary with enhanced metrics
-  const ocrFrames2 = frameAnalyses.filter(f => f !== null).length;
-
-  if (includeOCR) {
-    pdf.setFillColor(240, 240, 255);
-    pdf.setDrawColor(100, 100, 200);
-    pdf.roundedRect(margin, y, contentWidth, 45, 3, 3, 'FD');
-
-    y += 8;
-    pdf.setFontSize(10);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(50, 50, 150);
-    pdf.text('Enhanced Analysis Summary', margin + 5, y);
-    y += 7;
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(9);
-    pdf.text(`- Extracted text from ${ocrFrames2} frames with intent analysis`, margin + 5, y);
-    y += 5;
-    pdf.text(`- ${mustNotSkipFrames} frames marked as CRITICAL (must not skip)`, margin + 5, y);
-    y += 5;
-    pdf.text(`- ${explicitIntentFrames} frames with [EXPLICIT] or [STRONG] confidence`, margin + 5, y);
-    y += 5;
-    pdf.text(`- ${workflowAnalysis?.summary.totalWorkflows || 0} multi-step workflows detected`, margin + 5, y);
-    y += 5;
-    pdf.text(`- Average intent confidence: ${(avgConfidence * 100).toFixed(0)}%`, margin + 5, y);
-  }
-
   onProgress?.(100, 'PDF generation complete!');
 
   return pdf.output('blob');
@@ -1948,28 +1729,6 @@ export const generateMergedCoursePDF = async (
     y += 15;
   }
 
-  pdf.setFontSize(18);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('MASTER PDF FORMAT FOR AI', margin, y);
-  y += 12;
-
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(50, 50, 50);
-  pdf.text('1. Full Verbatim Transcripts (Monospace) for ALL modules', margin + 3, y);
-  y += 6;
-  pdf.text('2. Intelligence Layers (Key Moments, Concepts, Actionable Steps, Hidden Patterns)', margin + 3, y);
-  y += 6;
-  pdf.text('3. Multi-Module Contextual Integration', margin + 3, y);
-  y += 15;
-
-  pdf.setFontSize(8);
-  pdf.setTextColor(150, 150, 150);
-  const globalLegalText = pdf.splitTextToSize(LEGAL_FOOTER, contentWidth);
-  pdf.text(globalLegalText, margin, y);
-  y += 20;
-
   // ========== TABLE OF CONTENTS ==========
   addPageWithHeaders();
   const tocPageNumber = currentPage;
@@ -2017,6 +1776,8 @@ export const generateMergedCoursePDF = async (
     }
 
     // ========== INTELLIGENCE LAYERS (A-D) ==========
+    addPageWithHeaders();
+    y = margin + 10;
 
     // Layer A: Key Moments
     if (module.key_moments_index && module.key_moments_index.length > 0) {
@@ -2092,6 +1853,9 @@ export const generateMergedCoursePDF = async (
     }
 
     // ========== TRANSCRIPT SECTION (MONOSPACE) ==========
+    addPageWithHeaders();
+    y = margin + 10;
+
     if (module.transcript && module.transcript.length > 0) {
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
@@ -2117,7 +1881,7 @@ export const generateMergedCoursePDF = async (
         const line = `${timestamp} ${text}`;
         const textLines = pdf.splitTextToSize(line, contentWidth);
         pdf.text(textLines, margin, y);
-        y += 6.0; // Proportional leading for 11pt font
+        y += (textLines.length * 6.0); // Correctly increment y for wrapped text
       }
 
       // Small gap after transcript
@@ -2129,6 +1893,9 @@ export const generateMergedCoursePDF = async (
       if (y > pageHeight - 50) {
         addPageWithHeaders();
       }
+
+      addPageWithHeaders();
+      y = margin + 10;
 
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
