@@ -121,8 +121,8 @@ export default function Upload() {
     const newVideoEntries: FileEntry[] = [];
     const newDocEntries: AttachmentFile[] = [];
 
-    // Document extensions to check (including images for OCR)
-    const docExtensions = /\.(pdf|doc|docx|txt|md|ppt|pptx|xls|xlsx|csv|json|js|ts|jsx|tsx|html|css|xml|yaml|yml|py|sh|env|rtf|jpg|jpeg|png|webp)$/i;
+    // Document extensions to check
+    const docExtensions = /\.(pdf|doc|docx|txt|md|ppt|pptx|xls|xlsx|csv|json|js|ts|jsx|tsx|html|css|xml|yaml|yml|py|sh|env|rtf)$/i;
 
     for (const file of fileArray) {
       const isVideo = file.type.startsWith('video/') ||
@@ -619,7 +619,7 @@ export default function Upload() {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="video/*,.pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf,.jpg,.jpeg,.png,.webp"
+                      accept="video/*,.pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf"
                       multiple
                       className="hidden"
                       onChange={(e) => e.target.files && handleFilesSelected(e.target.files)}
@@ -709,7 +709,7 @@ export default function Upload() {
                               <input
                                 ref={(el) => { attachmentInputRefs.current[file.id] = el; }}
                                 type="file"
-                                accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf,.jpg,.jpeg,.png,.webp"
+                                accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf"
                                 multiple
                                 className="hidden"
                                 onChange={(e) => handleAttachmentSelected(file.id, e.target.files, 'document')}
