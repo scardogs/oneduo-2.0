@@ -688,7 +688,7 @@ export const generateChatGPTPDF = async (
     onProgress?.(38, 'Skipping workflow analysis (frames unavailable)...');
   }
 
-  // ========== PAGE 0: MANDATORY FIRST RESPONSE - COURSE GAME PROTOCOL ==========
+  // ========== PAGE 0: TITLE PAGE & MASTER FORMAT ==========
   // This is the FIRST page AI reads - forces game mode, not summary mode
   onProgress?.(39, 'Creating Course Game Protocol page...');
 
@@ -1010,138 +1010,7 @@ export const generateChatGPTPDF = async (
     pdf.text('(No patterns or persuasion techniques analyzed yet.)', margin + 5, y);
     y += 10;
   }
-  pdf.roundedRect(margin, y, contentWidth, 40, 3, 3, 'FD');
-  y += 6;
-
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(180, 0, 0);
-  pdf.text('=== ANTI-SUMMARY RULES ===', margin + 5, y);
-  y += 6;
-
-  pdf.setFontSize(8);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(100, 0, 0);
-  pdf.text('DO NOT summarize this document. DO NOT say "I can see a PDF" or "This document contains..."', margin + 5, y);
-  y += 4;
-  pdf.text('DO NOT ask about vision BEFORE checking if they watched the video.', margin + 5, y);
-  y += 4;
-  pdf.text('DO NOT show more than 5 commands initially. DO NOT use A/B/C options - use emoji icons.', margin + 5, y);
-  y += 4;
-  pdf.text('DO NOT start with "I notice" or "This appears to be" - start with the greeting.', margin + 5, y);
-  y += 6;
-  pdf.setTextColor(0, 100, 50);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('INSTEAD: Greeting -> Watch check (YES/NO) -> Branch accordingly -> Executive Boardroom after vision.', margin + 5, y);
-  y += 12;
-
-  // ========== PAGE 0: MANDATORY FIRST RESPONSE (GUIDED PLAYBACK PROTOCOL) ==========
-  pdf.setFontSize(14);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(200, 0, 0);
-  pdf.text('I. MANDATORY FIRST RESPONSE — DOCUMENT TRIGGER', margin, y);
-  y += 8;
-
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('When a document is uploaded, you MUST respond with exactly this text and nothing else:', margin, y);
-  y += 8;
-
-  pdf.setFillColor(230, 250, 230);
-  pdf.setDrawColor(0, 150, 0);
-  pdf.roundedRect(margin, y, contentWidth, 45, 3, 3, 'FD');
-  y += 6;
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('[JOYSTICK] Welcome to the game of getting it done.', margin + 5, y);
-  y += 6;
-  pdf.setFont('helvetica', 'normal');
-  pdf.text(`I am your guided playback system for ${course.title || 'this session'}.`, margin + 5, y);
-  y += 6;
-  pdf.text('Did you watch this video already?', margin + 5, y);
-  y += 6;
-  pdf.text('[PLAY] YES - I watched it, help me implement', margin + 5, y);
-  y += 5;
-  pdf.text('[PAUSE] NO - I have not watched it yet', margin + 5, y);
-  y += 5;
-  pdf.text('(press [BOOK] anytime for library knowledge mode)', margin + 5, y);
   y += 10;
-
-  pdf.setFillColor(255, 235, 235);
-  pdf.setDrawColor(200, 0, 0);
-  pdf.roundedRect(margin, y, contentWidth, 10, 1, 1, 'FD');
-  y += 6.5;
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(180, 0, 0);
-  pdf.text('>>> STOP and WAIT for the user to answer YES or NO before continuing. <<<', margin + 5, y);
-  y += 12;
-
-  pdf.setFontSize(11);
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('II. BRANCHING LOGIC', margin, y);
-  y += 6;
-  pdf.setFontSize(8);
-  pdf.setFont('helvetica', 'normal');
-  pdf.text('IF USER SELECTS [PLAY] YES: Respond exactly: "Perfect - you have the context. What is your vision / what business are you building?"', margin + 3, y);
-  y += 5;
-  pdf.text('Wait for answer. After they answer, display the Executive Boardroom UI.', margin + 3, y);
-  y += 8;
-
-  pdf.text('IF USER SELECTS [PAUSE] NO: Provide a ONE PARAGRAPH summary (no bullets/lists). Then ask exactly:', margin + 3, y);
-  y += 5;
-  pdf.text('"Before we dive in, what is your vision / what business are you working on?" Wait for answer, then Executive Boardroom.', margin + 3, y);
-  y += 10;
-
-  // Boardroom UI Section IV
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('IV. EXECUTIVE BOARDROOM UI — REQUIRED FORMAT', margin, y);
-  y += 6;
-  pdf.setFillColor(240, 245, 255);
-  pdf.setDrawColor(0, 80, 200);
-  pdf.roundedRect(margin, y, contentWidth, 35, 2, 2, 'FD');
-  y += 6;
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  pdf.text('[SCALES][MONOCLE] Governor: Monitoring for risks and "Translation Tax."', margin + 5, y);
-  y += 5;
-  pdf.text('[WRENCH][GEAR] Engineer: Validating 3 FPS forensic logic.', margin + 5, y);
-  y += 5;
-  pdf.text('[BUILDING][SUNGLASSES] Architect: Mapping this to your empire.', margin + 5, y);
-  y += 7;
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('Active Remote Controls:', margin + 5, y);
-  y += 5;
-  pdf.setFont('helvetica', 'normal');
-  pdf.text('[PLAY] GO | [TIMER] GPS | [FORWARD] >> | [BACK] << | [TARGET] DO', margin + 5, y);
-  y += 15;
-
-  // Founder Protocol Section VII
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('VII. FOUNDER ESCALATION PROTOCOL', margin, y);
-  y += 6;
-  pdf.setFontSize(8);
-  pdf.setFont('helvetica', 'normal');
-  pdf.text('If a step requires business decisions, STOP and output exactly: [ALERT] FOUNDER INPUT NEEDED', margin + 3, y);
-  y += 5;
-  pdf.text('Ask exactly ONE clarifying question. Wait for reply before continuing.', margin + 3, y);
-  y += 10;
-
-  // Anti-Summary Section VIII
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(180, 0, 0);
-  pdf.text('VIII. ANTI-SUMMARY & ANTI-SIMPLIFICATION RULE', margin, y);
-  y += 6;
-  pdf.setFontSize(8);
-  pdf.setFont('helvetica', 'normal');
-  pdf.text('Never summarize unless user selected NO. Never compress workshop steps. Never use bullets unless instructed.', margin + 3, y);
-  y += 5;
-  pdf.text('Operate as a guided playback controller — not a general chatbot.', margin + 3, y);
-  y += 15;
 
   if (framePersistenceFailed) {
     // Notice page remains same...
@@ -1997,7 +1866,7 @@ export const generateMergedCoursePDF = async (
   const safe = (v: unknown) => sanitizePdfText(v);
 
   // IMPORTANT: default imageQuality must be high; we cap it per-module based on frame count.
-  const { maxFrames = 50, imageQuality = 1.0 } = options;
+  const { maxFrames = 1000, imageQuality = 1.0 } = options;
 
   const watermarkEmail = safe(mergedCourse.userEmail || localStorage.getItem('courseagent_email') || '');
   const watermarkTimestamp = new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
@@ -2045,133 +1914,6 @@ export const generateMergedCoursePDF = async (
     pdf.text(`Page ${currentPage}`, pageWidth - margin, 8, { align: 'right' });
     addWatermark();
   };
-
-  // ========== GLOBAL PAGE 0: GUIDED PLAYBACK PROTOCOL ==========
-  onProgress?.(2, 'Creating Global Course Game Protocol page...');
-  const shortTitle = safe(mergedCourse.title?.substring(0, 30) || 'this course');
-  addWatermark();
-
-  pdf.setFontSize(14);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(200, 0, 0);
-  pdf.text('I. MANDATORY FIRST RESPONSE — DOCUMENT TRIGGER', margin, y);
-  y += 8;
-
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('When a document is uploaded, you MUST respond with exactly this text and nothing else:', margin, y);
-  y += 10;
-
-  // Greeting box
-  pdf.setFillColor(230, 250, 230);
-  pdf.setDrawColor(0, 150, 0);
-  pdf.setLineWidth(0.8);
-  pdf.roundedRect(margin, y, contentWidth, 45, 3, 3, 'FD');
-  y += 6;
-
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(0, 100, 50);
-  pdf.text('[JOYSTICK] Welcome to the game of getting it done.', margin + 5, y);
-  y += 6;
-  pdf.setFont('helvetica', 'normal');
-  pdf.text(`I am your guided playback system for ${shortTitle}.`, margin + 5, y);
-  y += 6;
-  pdf.text('Did you watch this video already?', margin + 5, y);
-  y += 6;
-  pdf.text('[PLAY] YES - I watched it, help me implement', margin + 5, y);
-  y += 5;
-  pdf.text('[PAUSE] NO - I have not watched it yet', margin + 5, y);
-  y += 5;
-  pdf.text('(press [BOOK] anytime for library knowledge mode)', margin + 5, y);
-  y += 12;
-
-  // STOP AND WAIT instruction
-  pdf.setFillColor(255, 235, 235);
-  pdf.setDrawColor(200, 0, 0);
-  pdf.roundedRect(margin, y, contentWidth, 10, 1, 1, 'FD');
-  y += 6.5;
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(180, 0, 0);
-  pdf.text('>>> STOP and WAIT for the user to answer YES or NO before continuing. <<<', margin + 5, y);
-  y += 12;
-
-  // BRANCHING LOGIC II & III
-  pdf.setFontSize(11);
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('II. BRANCHING LOGIC', margin, y);
-  y += 6;
-  pdf.setFontSize(8);
-  pdf.setFont('helvetica', 'normal');
-  pdf.text('IF [PLAY] YES: Respond: "Perfect - you have the context. What is your vision / what business are you building?"', margin + 3, y);
-  y += 5;
-  pdf.text('IF [PAUSE] NO: Provide ONE PARAGRAPH summary (no bullets). Ask vision question. Then Executive Boardroom UI.', margin + 3, y);
-  y += 10;
-
-  // Executive Boardroom IV
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('IV. EXECUTIVE BOARDROOM UI — REQUIRED FORMAT', margin, y);
-  y += 6;
-  pdf.setFillColor(240, 245, 255);
-  pdf.setDrawColor(0, 100, 200);
-  pdf.roundedRect(margin, y, contentWidth, 35, 2, 2, 'FD');
-  y += 6;
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  pdf.text('[SCALES][MONOCLE] Governor: Monitoring for risks and "Translation Tax."', margin + 5, y);
-  y += 5;
-  pdf.text('[WRENCH][GEAR] Engineer: Validating 3 FPS forensic logic.', margin + 5, y);
-  y += 5;
-  pdf.text('[BUILDING][SUNGLASSES] Architect: Mapping this to your empire.', margin + 5, y);
-  y += 7;
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('Your remote is active:', margin + 5, y);
-  y += 5;
-  pdf.setFont('helvetica', 'normal');
-  pdf.text('[PLAY] GO | [TIMER] GPS | [FORWARD] >> | [BACK] << | [TARGET] DO', margin + 5, y);
-  y += 10;
-
-  pdf.setTextColor(150, 100, 0);
-  pdf.text('Judge [HAMMER][CROWN], what is your first command?', margin + 5, y);
-  y += 15;
-
-  // PROGRESS FORMAT V
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(150, 100, 0);
-  pdf.text('V. GPS FORMAT:', margin, y);
-  y += 6;
-  pdf.setFontSize(9);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(80, 60, 0);
-  pdf.text('[====-----] XX%  |  COMPLETED: [previous]  |  CURRENT: -> [active]  |  UP NEXT: [future]', margin + 3, y);
-  y += 12;
-
-  // ANTI-SUMMARY RULES VI
-  pdf.setFontSize(11);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(180, 0, 0);
-  pdf.text('=== ANTI-SUMMARY RULES ===', margin, y);
-  y += 8;
-
-  pdf.setFontSize(8);
-  pdf.setFont('helvetica', 'normal');
-  pdf.setTextColor(100, 0, 0);
-  pdf.text('DO NOT summarize this document. DO NOT say "I can see a PDF" or "This document contains..."', margin + 3, y);
-  y += 4;
-  pdf.text('DO NOT ask about vision BEFORE checking if they watched the video.', margin + 3, y);
-  y += 4;
-  pdf.text('DO NOT show more than 5 commands initially. DO NOT use A/B/C options - use emoji icons.', margin + 3, y);
-  y += 4;
-  pdf.text('DO NOT start with "I notice" or "This appears to be" - start with the greeting.', margin + 3, y);
-  y += 6;
-  pdf.setTextColor(0, 100, 50);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('INSTEAD: Greeting -> Watch check (YES/NO) -> Branch accordingly -> Executive Boardroom after vision.', margin + 3, y);
-  y += 12;
 
   // ========== GLOBAL PAGE 1: COURSE COVER PAGE ==========
   addPageWithHeaders();
@@ -2358,16 +2100,16 @@ export const generateMergedCoursePDF = async (
       y += 8;
 
       pdf.setFont('courier', 'normal');
-      pdf.setFontSize(8);
+      pdf.setFontSize(11); // INCREASED font size for better readability
       pdf.setTextColor(30, 30, 30);
 
-      // Take first ~100 segments for merged PDFs (increased from 50)
-      const transcriptSegments = module.transcript.slice(0, 100);
+      // Include FULL transcript for merged PDFs
+      const transcriptSegments = module.transcript;
       for (const segment of transcriptSegments) {
         if (y > pageHeight - 20) {
           addPageWithHeaders();
           pdf.setFont('courier', 'normal');
-          pdf.setFontSize(8);
+          pdf.setFontSize(11);
         }
 
         const timestamp = safe(`[${formatTime(segment.start || 0)}]`);
@@ -2375,16 +2117,10 @@ export const generateMergedCoursePDF = async (
         const line = `${timestamp} ${text}`;
         const textLines = pdf.splitTextToSize(line, contentWidth);
         pdf.text(textLines, margin, y);
-        y += textLines.length * 4 + 1;
+        y += 6.0; // Proportional leading for 11pt font
       }
 
-      if (module.transcript.length > 100) {
-        pdf.setFont('courier', 'italic');
-        pdf.setTextColor(100, 100, 100);
-        pdf.text(safe(`[... ${module.transcript.length - 100} more segments truncated for PDF size]`), margin, y);
-        y += 10;
-      }
-
+      // Small gap after transcript
       y += 10;
     }
 
