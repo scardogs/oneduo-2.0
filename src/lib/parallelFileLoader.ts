@@ -63,11 +63,31 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
 
     // Plain text formats
     const plainTextFormats = ['.txt', '.md', '.csv', '.json', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.xml', '.yaml', '.yml', '.py', '.sh', '.env'];
+    const imageFormats = ['.jpg', '.jpeg', '.png', '.webp'];
+    const docFormats = ['.pdf', '.pptx', '.docx'];
+
     const isPlainText = plainTextFormats.some(ext => fileName.endsWith(ext));
+    const isImage = imageFormats.some(ext => fileName.endsWith(ext));
+    const isDoc = docFormats.some(ext => fileName.endsWith(ext));
 
     if (isPlainText) {
       textContent = await fileData.text();
-    } else if (fileName.endsWith('.pdf') || fileName.endsWith('.pptx') || fileName.endsWith('.docx')) {
+    } else if (isImage) {
+      // Use OCR for supplemental images
+      try {
+        const { data: extractData, error: extractError } = await supabase.functions.invoke('extract-frame-text', {
+          body: { storagePath: file.storagePath }
+        });
+
+        if (extractError || !extractData?.text) {
+          textContent = `[Image Document: ${file.name}]\n[OCR extraction failed or no text found.]`;
+        } else {
+          textContent = `[Image Content Transcript]:\n${extractData.text}`;
+        }
+      } catch (err) {
+        textContent = `[Image Document: ${file.name}]\n[OCR extraction error]`;
+      }
+    } else if (isDoc) {
       // Use server-side extraction for binary formats
       const fileType = fileName.endsWith('.pdf') ? 'pdf' :
         fileName.endsWith('.pptx') ? 'pptx' : 'docx';
@@ -87,7 +107,7 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
           };
         }
 
-        textContent = extractData.text;
+        textContent = `[${fileType.toUpperCase()} Document Transcript]:\n${extractData.text}`;
       } catch (err) {
         return {
           name: file.name,

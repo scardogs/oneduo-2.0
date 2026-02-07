@@ -1566,38 +1566,28 @@ export const generateChatGPTPDF = async (
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(30, 30, 30);
 
+        // Header for extracted text
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('--- EXTRACTED TEXT TRANSCRIPT ---', margin + 3, y);
+        y += 6;
+        pdf.setFont('helvetica', 'normal');
+
         // Split content into chunks that fit on pages
-        // Adaptive truncation based on total file count to prevent memory issues
         const contentToShow = file.content.length > maxContentPerFile
           ? file.content.substring(0, maxContentPerFile) + `\n\n[... Content truncated at ${maxContentPerFile} chars. Full file: ${file.content.length} chars ...]`
           : file.content;
 
         const contentLines = pdf.splitTextToSize(contentToShow, contentWidth - 6);
 
-        // Render content in chunks to handle page breaks
-        let lineIndex = 0;
-        while (lineIndex < contentLines.length) {
-          const availableHeight = pageHeight - y - margin - 15;
-          const linesPerPage = Math.floor(availableHeight / 4.5);
-          const linesToRender = contentLines.slice(lineIndex, lineIndex + linesPerPage);
-
-          if (linesToRender.length === 0) {
+        for (const line of contentLines) {
+          if (y > pageHeight - 35) {
             addPageWithHeaders();
-            continue;
+            pdf.setFontSize(9);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setTextColor(30, 30, 30);
           }
-
-          // Background for content block
-          const blockHeight = linesToRender.length * 4.5 + 6;
-          pdf.setFillColor(252, 252, 252);
-          pdf.roundedRect(margin, y, contentWidth, blockHeight, 2, 2, 'F');
-
-          pdf.text(linesToRender, margin + 3, y + 5);
-          y += blockHeight + 3;
-          lineIndex += linesPerPage;
-
-          if (lineIndex < contentLines.length) {
-            addPageWithHeaders();
-          }
+          pdf.text(line, margin + 4, y);
+          y += 4.5;
         }
       } else {
         pdf.setFontSize(9);
@@ -2053,6 +2043,12 @@ export const generateMergedCoursePDF = async (
         pdf.setFont('helvetica', 'normal');
         pdf.setTextColor(30, 30, 30);
 
+        // Header for extracted text
+        pdf.setFont('helvetica', 'bold');
+        pdf.text(safe('--- EXTRACTED TEXT TRANSCRIPT ---'), margin + 3, y);
+        y += 6;
+        pdf.setFont('helvetica', 'normal');
+
         const rawContent = safe(file.content);
         const contentToShow = rawContent.length > maxContentPerFile
           ? rawContent.substring(0, maxContentPerFile) + safe(`\n\n[... Content truncated at ${maxContentPerFile} chars. Full file: ${rawContent.length} chars ...]`)
@@ -2060,29 +2056,15 @@ export const generateMergedCoursePDF = async (
 
         const contentLines = pdf.splitTextToSize(contentToShow, contentWidth - 6);
 
-        // Render content in chunks to handle page breaks
-        let lineIndex = 0;
-        while (lineIndex < contentLines.length) {
-          const availableHeight = pageHeight - y - margin - 15;
-          const linesPerPage = Math.floor(availableHeight / 4.5);
-          const linesToRender = contentLines.slice(lineIndex, lineIndex + linesPerPage);
-
-          if (linesToRender.length === 0) {
+        for (const line of contentLines) {
+          if (y > pageHeight - 35) {
             addPageWithHeaders();
-            continue;
+            pdf.setFontSize(9);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setTextColor(30, 30, 30);
           }
-
-          const blockHeight = linesToRender.length * 4.5 + 6;
-          pdf.setFillColor(252, 252, 252);
-          pdf.roundedRect(margin, y, contentWidth, blockHeight, 2, 2, 'F');
-
-          pdf.text(linesToRender, margin + 3, y + 5);
-          y += blockHeight + 3;
-          lineIndex += linesPerPage;
-
-          if (lineIndex < contentLines.length) {
-            addPageWithHeaders();
-          }
+          pdf.text(line, margin + 4, y);
+          y += 4.5;
         }
       } else {
         pdf.setFontSize(9);

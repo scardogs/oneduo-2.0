@@ -1459,6 +1459,22 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
         return;
       }
 
+      // ========== LOAD SUPPLEMENTAL FILES ==========
+      let loadedSupplementalFiles: { name: string; content: string; size?: number }[] = [];
+      const courseFiles = (courseData.course_files || []).filter((file: any) => {
+        const fileName = file.name.toLowerCase();
+        const binaryExts = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.zip', '.rar', '.7z', '.exe', '.dll', '.bin'];
+        return !binaryExts.some(ext => fileName.endsWith(ext));
+      });
+
+      if (courseFiles.length > 0) {
+        setPdfProgress(prev => ({ ...prev, progress: 10, status: `Loading ${courseFiles.length} supplemental file(s)...` }));
+        const loadedResults = await loadFilesInParallel(courseFiles, (prog) => {
+          setPdfProgress(prev => ({ ...prev, progress: 10 + (prog.loaded / prog.total) * 15, status: `Loading ${prog.currentFile}...` }));
+        });
+        loadedSupplementalFiles = loadedResults.map(r => ({ name: r.name, content: r.content, size: r.size }));
+      }
+
       // Wrap PDF generation in a try-catch to prevent UI crashes
       let pdfBlob: Blob;
       try {
@@ -1471,9 +1487,10 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
             frame_urls: courseData.frame_urls,
             audio_events: courseData.audio_events,
             prosody_annotations: courseData.prosody_annotations,
+            supplementalFiles: loadedSupplementalFiles
           },
           (progress, status) => {
-            setPdfProgress(prev => ({ ...prev, progress, status }));
+            setPdfProgress(prev => ({ ...prev, progress: 25 + (progress / 100) * 75, status }));
           }
         );
       } catch (pdfError) {
@@ -1591,6 +1608,25 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
 
       const fullTitle = `${courseTitle} - ${moduleTitle}`;
 
+      // ========== LOAD SUPPLEMENTAL FILES ==========
+      // Note: Supplemental files are typically linked at the COURSE level.
+      // We fetch the course files for the parent course if it's a module.
+      let loadedSupplementalFiles: { name: string; content: string; size?: number }[] = [];
+      const parentCourse = courses.find(c => c.id === (moduleData.course_id || moduleId));
+      const courseFiles = (parentCourse?.course_files || moduleData.course_files || []).filter((file: any) => {
+        const fileName = file.name.toLowerCase();
+        const binaryExts = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.zip', '.rar', '.7z', '.exe', '.dll', '.bin'];
+        return !binaryExts.some(ext => fileName.endsWith(ext));
+      });
+
+      if (courseFiles.length > 0) {
+        setPdfProgress(prev => ({ ...prev, progress: 10, status: `Loading ${courseFiles.length} supplemental file(s)...` }));
+        const loadedResults = await loadFilesInParallel(courseFiles, (prog) => {
+          setPdfProgress(prev => ({ ...prev, progress: 10 + (prog.loaded / prog.total) * 15, status: `Loading ${prog.currentFile}...` }));
+        });
+        loadedSupplementalFiles = loadedResults.map(r => ({ name: r.name, content: r.content, size: r.size }));
+      }
+
       // Wrap PDF generation in a try-catch to prevent UI crashes
       let pdfBlob: Blob;
       try {
@@ -1603,9 +1639,10 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
             frame_urls: moduleData.frame_urls || [],
             audio_events: moduleData.audio_events,
             prosody_annotations: moduleData.prosody_annotations,
+            supplementalFiles: loadedSupplementalFiles
           },
           (progress, status) => {
-            setPdfProgress(prev => ({ ...prev, progress, status }));
+            setPdfProgress(prev => ({ ...prev, progress: 25 + (progress / 100) * 75, status }));
           }
         );
       } catch (pdfError) {
@@ -1765,12 +1802,14 @@ View full interactive version: ${window.location.origin}/view/${course.id}`;
       // Filter out binary/unsupported formats that shouldn't be embedded as text
       const EXCLUDED_EXTENSIONS = [
         '.pdf', '.mp4', '.mov', '.avi', '.mkv', '.webm',
-        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.ico',
         '.zip', '.rar', '.7z', '.exe', '.dll', '.bin'
       ];
+      // Filter out only serious binary/unsupported formats
+      // Images (.jpg, .png, etc.) and Docs (.docx, .pdf) are handled by OCR/Extraction in loader
       const courseFiles = (block.courseFiles || []).filter(file => {
         const fileName = file.name.toLowerCase();
-        return !EXCLUDED_EXTENSIONS.some(ext => fileName.endsWith(ext));
+        const binaryExts = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.zip', '.rar', '.7z', '.exe', '.dll', '.bin'];
+        return !binaryExts.some(ext => fileName.endsWith(ext));
       });
       let supplementalFiles: { name: string; content: string; size?: number }[] = [];
       let fileLoadFailures: string[] = [];
