@@ -441,7 +441,6 @@ export const generateChatGPTPDF = async (
   const margin = 15;
   const contentWidth = pageWidth - margin * 2;
   let y = margin;
-
   // Watermark function - Proprietary Intel footer on every page
   const addWatermark = () => {
     if (!watermarkEmail) return;
@@ -464,42 +463,35 @@ export const generateChatGPTPDF = async (
     pdf.text('This artifact is for private authorized educational use only. Unauthorized reproduction, resale, or distribution is a violation of the sacred trust and proprietary rights of the creator.', pageWidth / 2, footerY + 4, { align: 'center', maxWidth: contentWidth });
   };
 
-  // Add watermark to first page
-  addWatermark();
 
   // ========== PAGE HEADER/FOOTER FUNCTIONS FOR AI PORTABILITY ==========
-  const addPageHeader = () => {
+  let currentPage = 0;
+
+  const addPageWithHeaders = () => {
+    if (currentPage > 0) pdf.addPage();
+    currentPage++;
+    y = margin;
+
+    // Header
     pdf.setFontSize(7);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(100, 100, 100);
     pdf.text('OneDuo Artifact | VALIDATION REQUIRED | Follow demonstrated path exactly', margin, 8);
-  };
+    pdf.text(`Page ${currentPage}`, pageWidth - margin, 8, { align: 'right' });
 
-  const addPageFooter = () => {
+    // Watermark/Footer
+    addWatermark();
+
+    // Remote control reminder
     pdf.setFontSize(7);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(100, 100, 100);
-    // Remote control reminder on every page
     pdf.text('[PLAY] GO | [TIMER] GPS | [FORWARD] >> | [BACK] << | [TARGET] DO | [BOOK] Library | [SCALES] COUNCIL', margin, pageHeight - 5);
   };
 
-  // Add header/footer to first page
-  addPageHeader();
-  addPageFooter();
-
-  const addPage = () => {
-    pdf.addPage();
-    y = margin;
-    addWatermark();
-    addPageHeader();
-    addPageFooter();
-  };
-
-  const addPageWithHeaders = addPage; // Alias for clarity
-
   const checkPageBreak = (neededHeight: number) => {
-    if (y + neededHeight > pageHeight - margin - 12) { // Account for watermark height
-      addPage();
+    if (y + neededHeight > pageHeight - 35) {
+      addPageWithHeaders();
     }
   };
 
@@ -688,8 +680,10 @@ export const generateChatGPTPDF = async (
     onProgress?.(38, 'Skipping workflow analysis (frames unavailable)...');
   }
 
-  y = margin + 10;
+  // ========== PAGE 1: TITLE PAGE & MASTER FORMAT ==========
+  addPageWithHeaders();
   onProgress?.(40, 'Creating Master Title Page...');
+  y = margin + 10;
 
   pdf.setFontSize(24);
   pdf.setFont('helvetica', 'bold');
@@ -734,139 +728,147 @@ export const generateChatGPTPDF = async (
   y += 20;
 
   // ========== PAGES 2+: FULL VERBATIM TRANSCRIPT (MONOSPACE) ==========
-  addPageWithHeaders();
-  onProgress?.(41, 'Adding Monospace Verbatim Transcript...');
+  if (transcript && transcript.length > 0) {
+    addPageWithHeaders();
+    onProgress?.(41, 'Adding Monospace Verbatim Transcript...');
 
-  pdf.setFontSize(14);
-  pdf.setFont('helvetica', 'bold');
-  pdf.setTextColor(0, 0, 0);
-  pdf.text('FULL VERBATIM TRANSCRIPT', margin, y);
-  y += 10;
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.setTextColor(0, 0, 0);
+    pdf.text('FULL VERBATIM TRANSCRIPT', margin, y);
+    y += 10;
 
-  pdf.setFont('courier', 'normal');
-  pdf.setFontSize(11); // INCREASED font size for better readability
-  pdf.setTextColor(30, 30, 30);
+    pdf.setFont('courier', 'normal');
+    pdf.setFontSize(11);
+    pdf.setTextColor(30, 30, 30);
 
-  transcript.forEach((seg: any) => {
-    const ts = formatTime(seg.start);
-    const speaker = seg.speaker || "Speaker";
-    // Sanitize and replace characters that cause PDF encoding issues
-    const rawText = seg.text || "";
-    // Standardize to ASCII-safe text to prevent crashes
-    const sanitizedText = sanitizePdfText(rawText);
+    transcript.forEach((seg: any) => {
+      const ts = formatTime(seg.start);
+      const speaker = seg.speaker || "Speaker";
+      const sanitizedText = sanitizePdfText(seg.text || "");
 
-    const label = `[${ts}] ${speaker}: `;
-    const wrappedLabel = pdf.splitTextToSize(label, contentWidth);
+      const label = `[${ts}] ${speaker}: `;
+      if (y > margin + 15) y += 4; // Gap between segments
 
-    // Add small gap between segments for readability
-    if (y > margin + 10) y += 4;
+      const fullLine = `${label}${sanitizedText}`;
+      const splitLines = pdf.splitTextToSize(fullLine, contentWidth);
 
-    const fullLine = `${label}${sanitizedText}`;
-    const splitLines = pdf.splitTextToSize(fullLine, contentWidth);
-
-    splitLines.forEach((line) => {
-      if (y > pageHeight - 20) {
-        addPageWithHeaders();
-        pdf.setFont('courier', 'normal');
-        pdf.setFontSize(11);
-      }
-      pdf.text(line, margin, y);
-      y += 6.0; // Proportional leading for 11pt font
+      splitLines.forEach((line) => {
+        if (y > pageHeight - 35) {
+          addPageWithHeaders();
+          pdf.setFont('courier', 'normal');
+          pdf.setFontSize(11);
+        }
+        pdf.text(line, margin, y);
+        y += 6.0;
+      });
     });
-  });
+  }
 
   y += 10;
 
   // ========== INTELLIGENCE LAYERS ==========
 
   // Layer A: Key Moments
-  addPageWithHeaders();
-  onProgress?.(42, 'Adding Intelligence Layer A...');
-  pdf.setFontSize(16);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('INTELLIGENCE LAYER A: KEY MOMENTS INDEX', margin, y);
-  y += 15;
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'normal');
   if (course.key_moments_index && course.key_moments_index.length > 0) {
+    if (y > pageHeight - 50) addPageWithHeaders();
+    else y += 15;
+
+    onProgress?.(42, 'Adding Intelligence Layer A...');
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('INTELLIGENCE LAYER A: KEY MOMENTS INDEX', margin, y);
+    y += 15;
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
     course.key_moments_index.forEach((m) => {
       checkPageBreak(12);
       pdf.text(`[${m.timestamp || '--:--'}] - ${m.description}`, margin + 5, y);
       y += 8;
     });
-  } else {
-    pdf.text('(No key moments indexed yet.)', margin + 5, y);
-    y += 10;
   }
 
   // Layer B: Concepts & Frameworks
-  addPageWithHeaders();
-  onProgress?.(43, 'Adding Intelligence Layer B...');
-  pdf.setFontSize(16);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('INTELLIGENCE LAYER B: CONCEPTS & FRAMEWORKS', margin, y);
-  y += 15;
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'normal');
   if (course.concepts_frameworks && course.concepts_frameworks.length > 0) {
+    if (y > pageHeight - 60) addPageWithHeaders();
+    else y += 15;
+
+    onProgress?.(43, 'Adding Intelligence Layer B...');
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('INTELLIGENCE LAYER B: CONCEPTS & FRAMEWORKS', margin, y);
+    y += 12;
     course.concepts_frameworks.forEach((c) => {
-      checkPageBreak(20);
+      checkPageBreak(15);
+      pdf.setFontSize(10);
       pdf.setFont('helvetica', 'bold');
       pdf.text(`* ${c.title || 'Concept'}`, margin + 5, y);
       y += 6;
       pdf.setFont('helvetica', 'normal');
-      const descLines = pdf.splitTextToSize(c.description, contentWidth - 15);
-      pdf.text(descLines, margin + 10, y);
-      y += (descLines.length * 5) + 5;
+      pdf.setFontSize(9);
+      const descLines = pdf.splitTextToSize(sanitizePdfText(c.description), contentWidth - 15);
+      descLines.forEach((line: string) => {
+        if (y > pageHeight - 35) {
+          addPageWithHeaders();
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(9);
+        }
+        pdf.text(line, margin + 10, y);
+        y += 5;
+      });
+      y += 3;
     });
-  } else {
-    pdf.text('(No models or systems identified yet.)', margin + 5, y);
-    y += 10;
   }
 
   // Layer C: Actionable Steps
-  addPageWithHeaders();
-  onProgress?.(44, 'Adding Intelligence Layer C...');
-  pdf.setFontSize(16);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('INTELLIGENCE LAYER C: ACTIONABLE STEPS', margin, y);
-  y += 15;
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'normal');
   if (course.implementation_steps && course.implementation_steps.length > 0) {
+    if (y > pageHeight - 50) addPageWithHeaders();
+    else y += 15;
+
+    onProgress?.(44, 'Adding Intelligence Layer C...');
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('INTELLIGENCE LAYER C: ACTIONABLE STEPS', margin, y);
+    y += 12;
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
     course.implementation_steps.forEach((s, idx) => {
-      checkPageBreak(15);
+      checkPageBreak(12);
       pdf.text(`${s.step_number || idx + 1}. ${s.step_title || s.description}`, margin + 5, y);
       y += 8;
     });
-  } else {
-    pdf.text('(No actionable steps proposed yet.)', margin + 5, y);
-    y += 10;
   }
 
   // Layer D: Hidden Patterns
-  addPageWithHeaders();
-  onProgress?.(45, 'Adding Intelligence Layer D...');
-  pdf.setFontSize(16);
-  pdf.setFont('helvetica', 'bold');
-  pdf.text('INTELLIGENCE LAYER D: HIDDEN PATTERNS & INSIGHTS', margin, y);
-  y += 15;
-  pdf.setFontSize(10);
-  pdf.setFont('helvetica', 'normal');
   if (course.hidden_patterns && course.hidden_patterns.length > 0) {
+    if (y > pageHeight - 60) addPageWithHeaders();
+    else y += 15;
+
+    onProgress?.(45, 'Adding Intelligence Layer D...');
+    pdf.setFontSize(16);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('INTELLIGENCE LAYER D: HIDDEN PATTERNS & INSIGHTS', margin, y);
+    y += 12;
     course.hidden_patterns.forEach((p) => {
-      checkPageBreak(20);
+      checkPageBreak(15);
+      pdf.setFontSize(10);
       pdf.setFont('helvetica', 'bold');
       pdf.text(`* ${p.title || 'Pattern'}`, margin + 5, y);
       y += 6;
       pdf.setFont('helvetica', 'normal');
-      const descLines = pdf.splitTextToSize(p.description, contentWidth - 15);
-      pdf.text(descLines, margin + 10, y);
-      y += (descLines.length * 5) + 5;
+      pdf.setFontSize(9);
+      const descLines = pdf.splitTextToSize(sanitizePdfText(p.description), contentWidth - 15);
+      descLines.forEach((line: string) => {
+        if (y > pageHeight - 35) {
+          addPageWithHeaders();
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(9);
+        }
+        pdf.text(line, margin + 10, y);
+        y += 5;
+      });
+      y += 3;
     });
-  } else {
-    pdf.text('(No patterns or persuasion techniques analyzed yet.)', margin + 5, y);
-    y += 10;
   }
   y += 10;
 
@@ -1666,40 +1668,40 @@ export const generateMergedCoursePDF = async (
 
   // Track chapter page numbers for TOC
   const chapterPages: { title: string; pageNumber: number; moduleNumber: number }[] = [];
-  let currentPage = 1;
-
-  // Watermark function
-  const addWatermark = () => {
-    if (!watermarkEmail) return;
-    const footerY = pageHeight - 10;
-    pdf.setFontSize(7);
-    pdf.setFont('helvetica', 'bold');
-    pdf.setTextColor(150, 150, 150);
-    pdf.text(`Proprietary Intel: OneDuo Thinking Layer`, margin, footerY);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text(`| Authorized User: ${watermarkEmail}`, margin + 52, footerY);
-    pdf.text(`| Distilled: ${watermarkTimestamp}`, pageWidth - margin, footerY, { align: 'right' });
-    pdf.setFontSize(6);
-    pdf.setTextColor(130, 130, 130);
-    pdf.text('This artifact is for private authorized educational use only.', pageWidth / 2, footerY + 4, { align: 'center' });
-  };
+  let currentPage = 0;
 
   const addPageWithHeaders = () => {
-    pdf.addPage();
+    if (currentPage > 0) pdf.addPage();
     currentPage++;
     y = margin;
+
+    // Header
     pdf.setFontSize(7);
     pdf.setFont('helvetica', 'bold');
     pdf.setTextColor(100, 100, 100);
     pdf.text(`OneDuo Merged Course | ${mergedCourse.title}`, margin, 8);
     pdf.text(`Page ${currentPage}`, pageWidth - margin, 8, { align: 'right' });
-    addWatermark();
+
+    // Footer/Watermark
+    if (watermarkEmail) {
+      const footerY = pageHeight - 10;
+      pdf.setFontSize(7);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(`Proprietary Intel: OneDuo Thinking Layer`, margin, footerY);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`| Authorized User: ${watermarkEmail}`, margin + 52, footerY);
+      pdf.text(`| Distilled: ${watermarkTimestamp}`, pageWidth - margin, footerY, { align: 'right' });
+      pdf.setFontSize(6);
+      pdf.setTextColor(130, 130, 130);
+      pdf.text('This artifact is for private authorized educational use only.', pageWidth / 2, footerY + 4, { align: 'center' });
+    }
   };
 
   // ========== GLOBAL PAGE 1: COURSE COVER PAGE ==========
-  // ========== GLOBAL PAGE 1: COURSE COVER PAGE ==========
-  y = margin + 10;
+  addPageWithHeaders();
   onProgress?.(5, 'Creating Global Title Page...');
+  y = margin + 10;
 
   // Title
   pdf.setFontSize(28);
@@ -1783,8 +1785,8 @@ export const generateMergedCoursePDF = async (
       (module.hidden_patterns && module.hidden_patterns.length > 0);
 
     if (hasIntelLayers) {
-      addPageWithHeaders();
-      y = margin + 10;
+      if (y > pageHeight - 60) addPageWithHeaders();
+      else y += 10; // Vertical gap before intel layers if continuing on same page
     }
 
     // Layer A: Key Moments
@@ -1797,7 +1799,7 @@ export const generateMergedCoursePDF = async (
       pdf.setFontSize(9);
       pdf.setFont('helvetica', 'normal');
       module.key_moments_index.forEach((m) => {
-        if (y > pageHeight - 20) addPageWithHeaders();
+        if (y > pageHeight - 35) addPageWithHeaders();
         pdf.text(safe(`[${m.timestamp || '--:--'}] - ${m.description}`), margin + 5, y);
         y += 6;
       });
@@ -1812,14 +1814,23 @@ export const generateMergedCoursePDF = async (
       y += 8;
       pdf.setFontSize(9);
       module.concepts_frameworks.forEach((c) => {
-        if (y > pageHeight - 30) addPageWithHeaders();
+        if (y > pageHeight - 35) addPageWithHeaders();
         pdf.setFont('helvetica', 'bold');
         pdf.text(safe(`* ${c.title || 'Concept'}`), margin + 5, y);
-        y += 5;
+        y += 6;
         pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(9);
         const descLines = pdf.splitTextToSize(safe(c.description), contentWidth - 15);
-        pdf.text(descLines, margin + 10, y);
-        y += (descLines.length * 4) + 5;
+        descLines.forEach((line: string) => {
+          if (y > pageHeight - 35) {
+            addPageWithHeaders();
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(9);
+          }
+          pdf.text(line, margin + 10, y);
+          y += 5;
+        });
+        y += 3;
       });
       y += 10;
     }
@@ -1833,9 +1844,9 @@ export const generateMergedCoursePDF = async (
       pdf.setFontSize(9);
       pdf.setFont('helvetica', 'normal');
       module.implementation_steps.forEach((s, idx) => {
-        if (y > pageHeight - 20) addPageWithHeaders();
+        if (y > pageHeight - 35) addPageWithHeaders();
         pdf.text(safe(`${s.step_number || idx + 1}. ${s.step_title || s.description}`), margin + 5, y);
-        y += 6;
+        y += 7;
       });
       y += 10;
     }
@@ -1848,22 +1859,31 @@ export const generateMergedCoursePDF = async (
       y += 8;
       pdf.setFontSize(9);
       module.hidden_patterns.forEach((p) => {
-        if (y > pageHeight - 30) addPageWithHeaders();
+        if (y > pageHeight - 35) addPageWithHeaders();
         pdf.setFont('helvetica', 'bold');
         pdf.text(safe(`* ${p.title || 'Pattern'}`), margin + 5, y);
-        y += 5;
+        y += 6;
         pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(9);
         const descLines = pdf.splitTextToSize(safe(p.description), contentWidth - 15);
-        pdf.text(descLines, margin + 10, y);
-        y += (descLines.length * 4) + 5;
+        descLines.forEach((line: string) => {
+          if (y > pageHeight - 35) {
+            addPageWithHeaders();
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(9);
+          }
+          pdf.text(line, margin + 10, y);
+          y += 5;
+        });
+        y += 3;
       });
       y += 10;
     }
 
     // ========== TRANSCRIPT SECTION (MONOSPACE) ==========
     if (module.transcript && module.transcript.length > 0) {
-      addPageWithHeaders();
-      y = margin + 10;
+      if (y > pageHeight - 60) addPageWithHeaders();
+      else y += 15;
 
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
@@ -1890,7 +1910,7 @@ export const generateMergedCoursePDF = async (
         const textLines = pdf.splitTextToSize(line, contentWidth);
 
         for (const textLine of textLines) {
-          if (y > pageHeight - 20) {
+          if (y > pageHeight - 35) {
             addPageWithHeaders();
             pdf.setFont('courier', 'normal');
             pdf.setFontSize(11);
@@ -1906,8 +1926,8 @@ export const generateMergedCoursePDF = async (
 
     // ========== VISUAL FRAMES SECTION ==========
     if (module.frame_urls && module.frame_urls.length > 0) {
-      addPageWithHeaders();
-      y = margin + 10;
+      if (y > pageHeight - 80) addPageWithHeaders();
+      else y += 15;
 
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
@@ -1956,7 +1976,7 @@ export const generateMergedCoursePDF = async (
             const imgWidth = Math.min(contentWidth, 160);
             const imgHeight = imgWidth * 0.56; // 16:9 aspect ratio
 
-            if (y + imgHeight > pageHeight - 20) {
+            if (y + imgHeight > pageHeight - 30) {
               addPageWithHeaders();
             }
 
