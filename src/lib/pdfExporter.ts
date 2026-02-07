@@ -710,7 +710,7 @@ export const generateChatGPTPDF = async (
   pdf.setFontSize(10);
   pdf.setFont('helvetica', 'normal');
   pdf.setTextColor(50, 50, 50);
-  pdf.text('1. Full Verbatim Transcript (Monospace)', margin + 3, y);
+  pdf.text('1. Full Verbatim Transcript', margin + 3, y);
   y += 6;
   pdf.text('2. Layer A: Key Moments Index', margin + 3, y);
   y += 6;
@@ -727,10 +727,10 @@ export const generateChatGPTPDF = async (
   pdf.text(legalText, margin, y);
   y += 20;
 
-  // ========== PAGES 2+: FULL VERBATIM TRANSCRIPT (MONOSPACE) ==========
+  // ========== PAGES 2+: FULL VERBATIM TRANSCRIPT ==========
   if (transcript && transcript.length > 0) {
     addPageWithHeaders();
-    onProgress?.(41, 'Adding Monospace Verbatim Transcript...');
+    onProgress?.(41, 'Adding Verbatim Transcript...');
 
     pdf.setFontSize(14);
     pdf.setFont('helvetica', 'bold');
@@ -738,7 +738,7 @@ export const generateChatGPTPDF = async (
     pdf.text('FULL VERBATIM TRANSCRIPT', margin, y);
     y += 10;
 
-    pdf.setFont('courier', 'normal');
+    pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(11);
     pdf.setTextColor(30, 30, 30);
 
@@ -756,7 +756,7 @@ export const generateChatGPTPDF = async (
       splitLines.forEach((line) => {
         if (y > pageHeight - 35) {
           addPageWithHeaders();
-          pdf.setFont('courier', 'normal');
+          pdf.setFont('helvetica', 'normal');
           pdf.setFontSize(11);
         }
         pdf.text(line, margin, y);
@@ -1870,7 +1870,7 @@ export const generateMergedCoursePDF = async (
       y += 10;
     }
 
-    // ========== TRANSCRIPT SECTION (MONOSPACE) ==========
+    // ========== TRANSCRIPT SECTION ==========
     if (module.transcript && module.transcript.length > 0) {
       if (y > pageHeight - 60) addPageWithHeaders();
       else y += 15;
@@ -1881,7 +1881,7 @@ export const generateMergedCoursePDF = async (
       pdf.text(safe('Full Verbatim Transcript'), margin, y);
       y += 8;
 
-      pdf.setFont('courier', 'normal');
+      pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(11); // INCREASED font size for better readability
       pdf.setTextColor(30, 30, 30);
 
@@ -1890,7 +1890,7 @@ export const generateMergedCoursePDF = async (
       for (const segment of transcriptSegments) {
         if (y > pageHeight - 20) {
           addPageWithHeaders();
-          pdf.setFont('courier', 'normal');
+          pdf.setFont('helvetica', 'normal');
           pdf.setFontSize(11);
         }
 
@@ -1902,7 +1902,7 @@ export const generateMergedCoursePDF = async (
         for (const textLine of textLines) {
           if (y > pageHeight - 35) {
             addPageWithHeaders();
-            pdf.setFont('courier', 'normal');
+            pdf.setFont('helvetica', 'normal');
             pdf.setFontSize(11);
           }
           pdf.text(textLine, margin, y);
