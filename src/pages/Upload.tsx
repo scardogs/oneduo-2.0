@@ -54,14 +54,14 @@ export default function Upload() {
   const [searchParams] = useSearchParams();
   const addToExistingCourseId = searchParams.get('addTo');
   const existingCourseTitle = searchParams.get('title');
-  
+
   const { submitBatch, isUploading, progress, cancel, reset, initializeProgress } = useBatchUpload();
   const { checkVideoFile } = useContentModeration();
   const { pendingUpload, saveUploadState, updateUploadProgress, clearUploadState, dismissRecovery } = useUploadPersistence();
   const { isFirstUpload, markFirstUploadComplete } = useFirstUpload();
   const { user } = useAuth();
   const email = user?.email || '';
-  
+
   // Form state
   const [step, setStep] = useState<UploadStep>('input');
   const [files, setFiles] = useState<FileEntry[]>([]);
@@ -70,29 +70,29 @@ export default function Upload() {
   const [folderAsModules] = useState(true); // Toggle for folder structure handling
   const [isDragOver, setIsDragOver] = useState(false);
   const [, setCourseId] = useState<string | null>(null);
-  
+
   // Track if showing recovery dialog
   const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
-  
+
   // Drag reordering state
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
-  
+
   // Team notification
   const [teamNotificationEmail] = useState('');
   const [teamNotificationRole] = useState('');
-  
+
   // Course-level files (PDFs, docs, etc.)
   const [courseFiles, setCourseFiles] = useState<AttachmentFile[]>([]);
-  
+
   // Processing mode: false = Fast (1 FPS), true = Precision (3 FPS)
   const [precisionMode, setPrecisionMode] = useState(false);
-  
+
   // Merged Course Mode: All videos become chapters in ONE unified PDF
   // When true: One PDF with TOC + chapters, single completion email
   // When false (default): Separate artifacts per module, per-module emails
   const [mergedCourseMode, setMergedCourseMode] = useState(true);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const courseFilesInputRef = useRef<HTMLInputElement>(null);
@@ -120,15 +120,15 @@ export default function Upload() {
     const fileArray = Array.from(selectedFiles);
     const newVideoEntries: FileEntry[] = [];
     const newDocEntries: AttachmentFile[] = [];
-    
-    // Document extensions to check
-    const docExtensions = /\.(pdf|doc|docx|txt|md|ppt|pptx|xls|xlsx|csv|json|js|ts|jsx|tsx|html|css|xml|yaml|yml|py|sh|env|rtf)$/i;
-    
+
+    // Document extensions to check (including images for OCR)
+    const docExtensions = /\.(pdf|doc|docx|txt|md|ppt|pptx|xls|xlsx|csv|json|js|ts|jsx|tsx|html|css|xml|yaml|yml|py|sh|env|rtf|jpg|jpeg|png|webp)$/i;
+
     for (const file of fileArray) {
-      const isVideo = file.type.startsWith('video/') || 
+      const isVideo = file.type.startsWith('video/') ||
         /\.(mp4|mov|webm|avi|mkv|m4v)$/i.test(file.name);
       const isDocument = docExtensions.test(file.name);
-      
+
       if (isVideo) {
         // Validate video file
         const result = checkVideoFile(file);
@@ -136,7 +136,7 @@ export default function Upload() {
           toast.error(`${file.name}: ${result.reason}`);
           continue;
         }
-        
+
         newVideoEntries.push({
           id: crypto.randomUUID(),
           file,
@@ -157,22 +157,22 @@ export default function Upload() {
         toast.error(`${file.name}: Unsupported file type`);
       }
     }
-    
+
     // Add videos as modules
     if (newVideoEntries.length > 0) {
       setFiles(prev => [...prev, ...newVideoEntries]);
-      
+
       // Auto-set course title from first video if empty
       if (!courseTitle && newVideoEntries.length > 0) {
         setCourseTitle(newVideoEntries[0].name);
       }
     }
-    
+
     // Add documents as course files
     if (newDocEntries.length > 0) {
       setCourseFiles(prev => [...prev, ...newDocEntries]);
     }
-    
+
     // Show summary toast
     const parts = [];
     if (newVideoEntries.length > 0) parts.push(`${newVideoEntries.length} video${newVideoEntries.length > 1 ? 's' : ''}`);
@@ -185,40 +185,40 @@ export default function Upload() {
   // Handle folder selection - extracts video files from folder (top-level only)
   const handleFolderSelected = useCallback(async (selectedFiles: FileList | null) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
-    
+
     const fileArray = Array.from(selectedFiles);
-    
+
     // Filter to only video files at top level (no subfolders)
     const videoFiles = fileArray.filter(file => {
-      const isVideo = file.type.startsWith('video/') || 
+      const isVideo = file.type.startsWith('video/') ||
         /\.(mp4|mov|webm|avi|mkv|m4v)$/i.test(file.name);
       // Check if it's top-level (no "/" in webkitRelativePath after folder name)
       const pathParts = (file as any).webkitRelativePath?.split('/') || [];
       const isTopLevel = pathParts.length <= 2; // folder/file.mp4
       return isVideo && isTopLevel;
     });
-    
+
     if (videoFiles.length === 0) {
       toast.error('No video files found in folder (top level only)');
       return;
     }
-    
+
     // Get folder name for course title
     const firstFile = fileArray[0] as any;
     const folderName = firstFile.webkitRelativePath?.split('/')[0] || 'Untitled';
-    
+
     // Sort files alphabetically by name
     videoFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    
+
     const newEntries: FileEntry[] = [];
-    
+
     for (const file of videoFiles) {
       const result = checkVideoFile(file);
       if (!result.isAllowed) {
         toast.error(`${file.name}: ${result.reason}`);
         continue;
       }
-      
+
       const entryId = crypto.randomUUID();
       newEntries.push({
         id: entryId,
@@ -229,7 +229,7 @@ export default function Upload() {
         attachments: [],
       });
     }
-    
+
     if (newEntries.length > 0) {
       if (folderAsModules) {
         // Replace existing files - folder becomes the course
@@ -244,7 +244,7 @@ export default function Upload() {
           setCourseTitle(folderName);
         }
       }
-      
+
       toast.success(`Added ${newEntries.length} videos from "${folderName}"`);
     }
   }, [checkVideoFile, courseTitle, folderAsModules]);
@@ -263,7 +263,7 @@ export default function Upload() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    
+
     const droppedFiles = e.dataTransfer.files;
     if (droppedFiles.length > 0) {
       handleFilesSelected(droppedFiles);
@@ -277,7 +277,7 @@ export default function Upload() {
 
   // Update a file's name (module title)
   const updateFileName = useCallback((id: string, newName: string) => {
-    setFiles(prev => prev.map(f => 
+    setFiles(prev => prev.map(f =>
       f.id === id ? { ...f, name: newName } : f
     ));
   }, []);
@@ -285,10 +285,10 @@ export default function Upload() {
   // Add attachment to a specific module
   const attachmentInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const videoAttachmentInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  
+
   const handleAttachmentSelected = useCallback((moduleId: string, selectedFiles: FileList | null, type: 'document' | 'video') => {
     if (!selectedFiles || selectedFiles.length === 0) return;
-    
+
     const newAttachments: AttachmentFile[] = Array.from(selectedFiles).map(file => ({
       id: crypto.randomUUID(),
       file,
@@ -296,21 +296,21 @@ export default function Upload() {
       size: file.size,
       type,
     }));
-    
-    setFiles(prev => prev.map(f => 
-      f.id === moduleId 
+
+    setFiles(prev => prev.map(f =>
+      f.id === moduleId
         ? { ...f, attachments: [...f.attachments, ...newAttachments] }
         : f
     ));
-    
+
     const label = type === 'video' ? 'video' : 'file';
     toast.success(`Added ${newAttachments.length} ${label}${newAttachments.length > 1 ? 's' : ''} to module`);
   }, []);
 
   // Remove attachment from a module
   const removeAttachment = useCallback((moduleId: string, attachmentId: string) => {
-    setFiles(prev => prev.map(f => 
-      f.id === moduleId 
+    setFiles(prev => prev.map(f =>
+      f.id === moduleId
         ? { ...f, attachments: f.attachments.filter(a => a.id !== attachmentId) }
         : f
     ));
@@ -319,7 +319,7 @@ export default function Upload() {
   // Handle course-level file selection
   const handleCourseFilesSelected = useCallback((selectedFiles: FileList | null) => {
     if (!selectedFiles || selectedFiles.length === 0) return;
-    
+
     const newFiles: AttachmentFile[] = Array.from(selectedFiles).map(file => ({
       id: crypto.randomUUID(),
       file,
@@ -327,7 +327,7 @@ export default function Upload() {
       size: file.size,
       type: 'document' as const,
     }));
-    
+
     setCourseFiles(prev => [...prev, ...newFiles]);
     toast.success(`Added ${newFiles.length} course file${newFiles.length > 1 ? 's' : ''}`);
   }, []);
@@ -376,18 +376,18 @@ export default function Upload() {
   const handleDropOnItem = useCallback((e: React.DragEvent, targetId: string) => {
     e.preventDefault();
     if (!draggedId || draggedId === targetId) return;
-    
+
     setFiles(prev => {
       const fromIndex = prev.findIndex(f => f.id === draggedId);
       const toIndex = prev.findIndex(f => f.id === targetId);
       if (fromIndex === -1 || toIndex === -1) return prev;
-      
+
       const newFiles = [...prev];
       const [removed] = newFiles.splice(fromIndex, 1);
       newFiles.splice(toIndex, 0, removed);
       return newFiles;
     });
-    
+
     setDraggedId(null);
     setDragOverId(null);
   }, [draggedId]);
@@ -405,19 +405,19 @@ export default function Upload() {
   // Handle submit - Pure Cloud Flow
   const handleSubmit = async () => {
     if (!isFormValid) return;
-    
+
     // Transition to locked processing state
     setStep('processing');
-    
+
     // Auto-scroll to progress bar after a brief delay for animation
     setTimeout(() => {
       progressRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 300);
-    
+
     // Initialize progress immediately for visual feedback
     const hasDocumentsOnly = files.length === 0 && courseFiles.length > 0;
     initializeProgress(files.length, hasDocumentsOnly);
-    
+
     // Save upload state for recovery
     saveUploadState({
       courseTitle,
@@ -433,9 +433,9 @@ export default function Upload() {
       uploadedModules: 0,
       totalModules: files.length,
     });
-    
+
     console.log('[Upload] Starting pure cloud upload flow');
-    
+
     // Convert files to BatchModule format - include ALL attachments (videos + documents)
     // The batch upload hook will separate them and handle sub-videos for stitching
     const modules: BatchModule[] = files.map((f, i) => ({
@@ -446,7 +446,7 @@ export default function Upload() {
       progress: 0,
       attachments: f.attachments // Include all attachments - hook will filter by type
     }));
-    
+
     // Upload course-level files first
     let courseFileUrls: { name: string; storagePath: string; size: number }[] = [];
     if (courseFiles.length > 0) {
@@ -456,7 +456,7 @@ export default function Upload() {
           const { error } = await supabase.storage
             .from('course-files')
             .upload(storagePath, cf.file);
-          
+
           if (!error) {
             courseFileUrls.push({
               name: cf.name,
@@ -480,7 +480,7 @@ export default function Upload() {
       existingCourseId: addToExistingCourseId || undefined,
       mergedCourseMode: mergedCourseMode && files.length > 1, // Only for multi-video uploads
     });
-    
+
     if (result.success) {
       setCourseId(result.courseId || null);
       setStep('celebrating');
@@ -499,7 +499,7 @@ export default function Upload() {
   useEffect(() => {
     // Don't persist state after upload completes successfully
     if (step === 'celebrating' || step === 'complete') return;
-    
+
     if (progress.stage === 'uploading' || progress.stage === 'submitted') {
       updateUploadProgress(progress.uploadedModules, progress.stage === 'submitted' ? 'submitted' : 'uploading');
     }
@@ -551,649 +551,649 @@ export default function Upload() {
       )}
 
       <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-background/80 backdrop-blur-xl sticky top-0 z-50">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <Logo className="h-8 w-auto" />
-          </Link>
-          {step === 'input' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => navigate(-1)}
-              className="text-muted-foreground"
-            >
-              <ArrowLeft className="w-4 h-4 mr-1" />
-              Back
-            </Button>
-          )}
-        </div>
-      </header>
-
-      <div className="flex items-center justify-center p-4 pt-8 pb-16">
-        <div className="w-full max-w-2xl">
-          <AnimatePresence mode="wait">
-            {/* INPUT STEP - Editable */}
+        {/* Header */}
+        <header className="border-b border-border bg-background/80 backdrop-blur-xl sticky top-0 z-50">
+          <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
+            <Link to="/" className="flex items-center gap-2">
+              <Logo className="h-8 w-auto" />
+            </Link>
             {step === 'input' && (
-              <motion.div
-                key="input"
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className="space-y-6"
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => navigate(-1)}
+                className="text-muted-foreground"
               >
-                {/* Minimal Header - only if adding to existing */}
-                {addToExistingCourseId && (
-                  <div className="text-center">
-                    <h1 className="text-lg font-medium text-foreground">Add More Videos</h1>
-                  </div>
-                )}
+                <ArrowLeft className="w-4 h-4 mr-1" />
+                Back
+              </Button>
+            )}
+          </div>
+        </header>
 
-
-                {/* Course Title */}
-                <div>
-                  <Input
-                    placeholder="Course title"
-                    value={courseTitle}
-                    onChange={(e) => setCourseTitle(e.target.value)}
-                    className="text-lg h-12 bg-card border-border"
-                    disabled={!!addToExistingCourseId}
-                  />
-                </div>
-
-                {/* Unified Drop Zone */}
-                <div
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                  className={cn(
-                    "relative border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-200",
-                    isDragOver 
-                      ? "border-primary bg-primary/5 scale-[1.02]" 
-                      : "border-border hover:border-primary/50 hover:bg-muted/30",
-                    files.length > 0 && "p-6"
-                  )}
+        <div className="flex items-center justify-center p-4 pt-8 pb-16">
+          <div className="w-full max-w-2xl">
+            <AnimatePresence mode="wait">
+              {/* INPUT STEP - Editable */}
+              {step === 'input' && (
+                <motion.div
+                  key="input"
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="space-y-6"
                 >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="video/*,.pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => e.target.files && handleFilesSelected(e.target.files)}
-                  />
-                  {/* Hidden folder input with webkitdirectory */}
-                  <input
-                    ref={folderInputRef}
-                    type="file"
-                    // @ts-ignore - webkitdirectory is a valid attribute but not in types
-                    webkitdirectory=""
-                    directory=""
-                    multiple
-                    className="hidden"
-                    onChange={(e) => handleFolderSelected(e.target.files)}
-                  />
-                  
-                  {files.length === 0 && courseFiles.length === 0 ? (
-                    <div className="space-y-4" onClick={(e) => e.stopPropagation()}>
-                      <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-                        <UploadIcon className="w-8 h-8 text-primary" />
-                      </div>
-                      <div>
-                        <p className="text-lg font-medium text-foreground">Drop files here</p>
-                        <p className="text-sm text-muted-foreground mt-1">Up to 10GB per file</p>
-                      </div>
-                      
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => fileInputRef.current?.click()}
-                        className="gap-2"
-                      >
-                        <UploadIcon className="w-4 h-4" />
-                        Upload Files
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
-                      {/* Compact file list with drag reordering */}
-                      {files.map((file, index) => (
-                        <div key={file.id} className="space-y-1">
-                          <div 
-                            draggable
-                            onDragStart={(e) => handleDragStart(e, file.id)}
-                            onDragEnd={handleDragEnd}
-                            onDragOver={(e) => handleDragOverItem(e, file.id)}
-                            onDragLeave={handleDragLeaveItem}
-                            onDrop={(e) => handleDropOnItem(e, file.id)}
-                            className={cn(
-                              "flex items-center gap-3 p-3 bg-muted/50 rounded-lg group cursor-grab active:cursor-grabbing transition-all duration-150",
-                              draggedId === file.id && "opacity-50 scale-[0.98]",
-                              dragOverId === file.id && "ring-2 ring-primary ring-offset-2 ring-offset-background"
-                            )}
-                          >
-                            <GripVertical className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors" />
-                            <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0">
-                              {index + 1}
-                            </span>
-                            <FileVideo className="w-5 h-5 text-primary flex-shrink-0" />
-                            <input
-                              type="text"
-                              value={file.name}
-                              onChange={(e) => updateFileName(file.id, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              className="flex-1 bg-transparent border-none text-foreground text-sm font-medium focus:outline-none focus:ring-1 focus:ring-primary/50 rounded px-1 -ml-1 truncate cursor-text"
-                              placeholder="Module title"
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              {formatSize(file.size)}
-                            </span>
-                            {/* Multi-video indicator */}
-                            {file.attachments.filter(a => a.type === 'video').length > 0 && (
-                              <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">
-                                {file.attachments.filter(a => a.type === 'video').length + 1} videos
-                              </span>
-                            )}
-                            {/* Hidden inputs for attachments */}
-                            <input
-                              ref={(el) => { videoAttachmentInputRefs.current[file.id] = el; }}
-                              type="file"
-                              accept="video/*"
-                              multiple
-                              className="hidden"
-                              onChange={(e) => handleAttachmentSelected(file.id, e.target.files, 'video')}
-                            />
-                            <input
-                              ref={(el) => { attachmentInputRefs.current[file.id] = el; }}
-                              type="file"
-                              accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf"
-                              multiple
-                              className="hidden"
-                              onChange={(e) => handleAttachmentSelected(file.id, e.target.files, 'document')}
-                            />
-                            {/* Add video button */}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); videoAttachmentInputRefs.current[file.id]?.click(); }}
-                              className="p-1.5 hover:bg-primary/20 rounded transition-colors group/btn"
-                              title="Add sub-video (Module 4A, 4B, etc.)"
-                            >
-                              <FileVideo className="w-4 h-4 text-primary" />
-                            </button>
-                            {/* Attach document button */}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); attachmentInputRefs.current[file.id]?.click(); }}
-                              className="p-1.5 hover:bg-amber-500/20 rounded transition-colors group/btn"
-                              title="Attach supplementary documents (PDFs, docs, etc.)"
-                            >
-                              <FileText className="w-4 h-4 text-amber-500" />
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); removeFile(file.id); }}
-                              className="p-1 hover:bg-destructive/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X className="w-4 h-4 text-muted-foreground hover:text-destructive" />
-                            </button>
-                          </div>
-                          
-                          {/* Attachments list */}
-                          {file.attachments.length > 0 && (
-                            <div className="ml-12 space-y-1">
-                              {/* Sub-videos first */}
-                              {file.attachments.filter(a => a.type === 'video').map((attachment, subIndex) => (
-                                <div 
-                                  key={attachment.id}
-                                  className="flex items-center gap-2 px-3 py-2 bg-primary/5 rounded text-sm group/att border border-primary/10"
-                                >
-                                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center flex-shrink-0">
-                                    {index + 1}{getSubLabel(subIndex + 1)}
-                                  </span>
-                                  <FileVideo className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                                  <span className="flex-1 truncate text-foreground">
-                                    {attachment.name}
-                                  </span>
-                                  <span className="text-muted-foreground/60 text-xs">
-                                    {formatSize(attachment.size)}
-                                  </span>
-                                  <button
-                                    onClick={() => removeAttachment(file.id, attachment.id)}
-                                    className="p-0.5 hover:bg-destructive/20 rounded opacity-0 group-hover/att:opacity-100 transition-opacity"
-                                  >
-                                    <X className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
-                                  </button>
-                                </div>
-                              ))}
-                              {/* Document attachments */}
-                              {file.attachments.filter(a => a.type === 'document').map(attachment => (
-                                <div 
-                                  key={attachment.id}
-                                  className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 rounded text-xs group/att"
-                                >
-                                  <FileText className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                                  <span className="flex-1 truncate text-muted-foreground">
-                                    {attachment.name}
-                                  </span>
-                                  <span className="text-muted-foreground/60">
-                                    {formatSize(attachment.size)}
-                                  </span>
-                                  <button
-                                    onClick={() => removeAttachment(file.id, attachment.id)}
-                                    className="p-0.5 hover:bg-destructive/20 rounded opacity-0 group-hover/att:opacity-100 transition-opacity"
-                                  >
-                                    <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                      
-                      {/* Add more files */}
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        className="w-full p-3 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center justify-center gap-2"
-                      >
-                        <UploadIcon className="w-4 h-4" />
-                        + Add Files
-                      </button>
-                      
-                      {/* Hidden input for course files */}
-                      <input
-                        ref={courseFilesInputRef}
-                        type="file"
-                        multiple
-                        accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf"
-                        className="hidden"
-                        onChange={(e) => handleCourseFilesSelected(e.target.files)}
-                      />
-                      
-                      {/* Display course-level files */}
-                      {courseFiles.length > 0 && (
-                        <div className="space-y-1 p-3 bg-muted/20 rounded-lg">
-                          <p className="text-xs text-muted-foreground mb-2">Course Materials:</p>
-                          {courseFiles.map(file => (
-                            <div 
-                              key={file.id}
-                              className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 rounded text-xs group/att"
-                            >
-                              <FileText className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
-                              <span className="flex-1 truncate text-foreground">
-                                {file.name}
-                              </span>
-                              <span className="text-muted-foreground/60">
-                                {formatSize(file.size)}
-                              </span>
-                              <button
-                                onClick={() => removeCourseFile(file.id)}
-                                className="p-0.5 hover:bg-destructive/20 rounded opacity-0 group-hover/att:opacity-100 transition-opacity"
-                              >
-                                <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                  {/* Minimal Header - only if adding to existing */}
+                  {addToExistingCourseId && (
+                    <div className="text-center">
+                      <h1 className="text-lg font-medium text-foreground">Add More Videos</h1>
                     </div>
                   )}
-                </div>
 
-                {/* Signed in as - minimal */}
-                <p className="text-xs text-muted-foreground text-center">{email}</p>
 
-                {/* Processing Mode Toggle - Minimal */}
-                <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border">
-                  <span className="text-sm text-foreground">
-                    {precisionMode ? 'Precision (3 FPS)' : 'Fast (1 FPS)'}
-                  </span>
-                  <button
-                    onClick={() => setPrecisionMode(!precisionMode)}
+                  {/* Course Title */}
+                  <div>
+                    <Input
+                      placeholder="Course title"
+                      value={courseTitle}
+                      onChange={(e) => setCourseTitle(e.target.value)}
+                      className="text-lg h-12 bg-card border-border"
+                      disabled={!!addToExistingCourseId}
+                    />
+                  </div>
+
+                  {/* Unified Drop Zone */}
+                  <div
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => fileInputRef.current?.click()}
                     className={cn(
-                      "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
-                      precisionMode ? "bg-amber-500" : "bg-primary"
+                      "relative border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-200",
+                      isDragOver
+                        ? "border-primary bg-primary/5 scale-[1.02]"
+                        : "border-border hover:border-primary/50 hover:bg-muted/30",
+                      files.length > 0 && "p-6"
                     )}
                   >
-                    <span
-                      className={cn(
-                        "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                        precisionMode ? "translate-x-6" : "translate-x-1"
-                      )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="video/*,.pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf,.jpg,.jpeg,.png,.webp"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => e.target.files && handleFilesSelected(e.target.files)}
                     />
-                  </button>
-                </div>
+                    {/* Hidden folder input with webkitdirectory */}
+                    <input
+                      ref={folderInputRef}
+                      type="file"
+                      // @ts-ignore - webkitdirectory is a valid attribute but not in types
+                      webkitdirectory=""
+                      directory=""
+                      multiple
+                      className="hidden"
+                      onChange={(e) => handleFolderSelected(e.target.files)}
+                    />
 
-                {/* Output Mode Toggle - Clearer labels per beta feedback */}
-                {files.length > 1 && (
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/20">
-                    <div className="flex flex-col">
-                      <span className="text-sm font-medium text-foreground">
-                        {mergedCourseMode ? 'Combined Output' : 'Separate Outputs'}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {mergedCourseMode 
-                          ? 'One PDF with all videos as chapters' 
-                          : 'One PDF per video'}
-                      </span>
-                    </div>
+                    {files.length === 0 && courseFiles.length === 0 ? (
+                      <div className="space-y-4" onClick={(e) => e.stopPropagation()}>
+                        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                          <UploadIcon className="w-8 h-8 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-lg font-medium text-foreground">Drop files here</p>
+                          <p className="text-sm text-muted-foreground mt-1">Up to 10GB per file</p>
+                        </div>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="gap-2"
+                        >
+                          <UploadIcon className="w-4 h-4" />
+                          Upload Files
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
+                        {/* Compact file list with drag reordering */}
+                        {files.map((file, index) => (
+                          <div key={file.id} className="space-y-1">
+                            <div
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, file.id)}
+                              onDragEnd={handleDragEnd}
+                              onDragOver={(e) => handleDragOverItem(e, file.id)}
+                              onDragLeave={handleDragLeaveItem}
+                              onDrop={(e) => handleDropOnItem(e, file.id)}
+                              className={cn(
+                                "flex items-center gap-3 p-3 bg-muted/50 rounded-lg group cursor-grab active:cursor-grabbing transition-all duration-150",
+                                draggedId === file.id && "opacity-50 scale-[0.98]",
+                                dragOverId === file.id && "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                              )}
+                            >
+                              <GripVertical className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors" />
+                              <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                {index + 1}
+                              </span>
+                              <FileVideo className="w-5 h-5 text-primary flex-shrink-0" />
+                              <input
+                                type="text"
+                                value={file.name}
+                                onChange={(e) => updateFileName(file.id, e.target.value)}
+                                onClick={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                className="flex-1 bg-transparent border-none text-foreground text-sm font-medium focus:outline-none focus:ring-1 focus:ring-primary/50 rounded px-1 -ml-1 truncate cursor-text"
+                                placeholder="Module title"
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                {formatSize(file.size)}
+                              </span>
+                              {/* Multi-video indicator */}
+                              {file.attachments.filter(a => a.type === 'video').length > 0 && (
+                                <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">
+                                  {file.attachments.filter(a => a.type === 'video').length + 1} videos
+                                </span>
+                              )}
+                              {/* Hidden inputs for attachments */}
+                              <input
+                                ref={(el) => { videoAttachmentInputRefs.current[file.id] = el; }}
+                                type="file"
+                                accept="video/*"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => handleAttachmentSelected(file.id, e.target.files, 'video')}
+                              />
+                              <input
+                                ref={(el) => { attachmentInputRefs.current[file.id] = el; }}
+                                type="file"
+                                accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf,.jpg,.jpeg,.png,.webp"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => handleAttachmentSelected(file.id, e.target.files, 'document')}
+                              />
+                              {/* Add video button */}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); videoAttachmentInputRefs.current[file.id]?.click(); }}
+                                className="p-1.5 hover:bg-primary/20 rounded transition-colors group/btn"
+                                title="Add sub-video (Module 4A, 4B, etc.)"
+                              >
+                                <FileVideo className="w-4 h-4 text-primary" />
+                              </button>
+                              {/* Attach document button */}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); attachmentInputRefs.current[file.id]?.click(); }}
+                                className="p-1.5 hover:bg-amber-500/20 rounded transition-colors group/btn"
+                                title="Attach supplementary documents (PDFs, docs, etc.)"
+                              >
+                                <FileText className="w-4 h-4 text-amber-500" />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); removeFile(file.id); }}
+                                className="p-1 hover:bg-destructive/20 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="w-4 h-4 text-muted-foreground hover:text-destructive" />
+                              </button>
+                            </div>
+
+                            {/* Attachments list */}
+                            {file.attachments.length > 0 && (
+                              <div className="ml-12 space-y-1">
+                                {/* Sub-videos first */}
+                                {file.attachments.filter(a => a.type === 'video').map((attachment, subIndex) => (
+                                  <div
+                                    key={attachment.id}
+                                    className="flex items-center gap-2 px-3 py-2 bg-primary/5 rounded text-sm group/att border border-primary/10"
+                                  >
+                                    <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                                      {index + 1}{getSubLabel(subIndex + 1)}
+                                    </span>
+                                    <FileVideo className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                                    <span className="flex-1 truncate text-foreground">
+                                      {attachment.name}
+                                    </span>
+                                    <span className="text-muted-foreground/60 text-xs">
+                                      {formatSize(attachment.size)}
+                                    </span>
+                                    <button
+                                      onClick={() => removeAttachment(file.id, attachment.id)}
+                                      className="p-0.5 hover:bg-destructive/20 rounded opacity-0 group-hover/att:opacity-100 transition-opacity"
+                                    >
+                                      <X className="w-3.5 h-3.5 text-muted-foreground hover:text-destructive" />
+                                    </button>
+                                  </div>
+                                ))}
+                                {/* Document attachments */}
+                                {file.attachments.filter(a => a.type === 'document').map(attachment => (
+                                  <div
+                                    key={attachment.id}
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 rounded text-xs group/att"
+                                  >
+                                    <FileText className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                                    <span className="flex-1 truncate text-muted-foreground">
+                                      {attachment.name}
+                                    </span>
+                                    <span className="text-muted-foreground/60">
+                                      {formatSize(attachment.size)}
+                                    </span>
+                                    <button
+                                      onClick={() => removeAttachment(file.id, attachment.id)}
+                                      className="p-0.5 hover:bg-destructive/20 rounded opacity-0 group-hover/att:opacity-100 transition-opacity"
+                                    >
+                                      <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Add more files */}
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="w-full p-3 border border-dashed border-border rounded-lg text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <UploadIcon className="w-4 h-4" />
+                          + Add Files
+                        </button>
+
+                        {/* Hidden input for course files */}
+                        <input
+                          ref={courseFilesInputRef}
+                          type="file"
+                          multiple
+                          accept=".pdf,.doc,.docx,.txt,.md,.ppt,.pptx,.xls,.xlsx,.csv,.json,.js,.ts,.jsx,.tsx,.html,.css,.xml,.yaml,.yml,.py,.sh,.env,.rtf"
+                          className="hidden"
+                          onChange={(e) => handleCourseFilesSelected(e.target.files)}
+                        />
+
+                        {/* Display course-level files */}
+                        {courseFiles.length > 0 && (
+                          <div className="space-y-1 p-3 bg-muted/20 rounded-lg">
+                            <p className="text-xs text-muted-foreground mb-2">Course Materials:</p>
+                            {courseFiles.map(file => (
+                              <div
+                                key={file.id}
+                                className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 rounded text-xs group/att"
+                              >
+                                <FileText className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                                <span className="flex-1 truncate text-foreground">
+                                  {file.name}
+                                </span>
+                                <span className="text-muted-foreground/60">
+                                  {formatSize(file.size)}
+                                </span>
+                                <button
+                                  onClick={() => removeCourseFile(file.id)}
+                                  className="p-0.5 hover:bg-destructive/20 rounded opacity-0 group-hover/att:opacity-100 transition-opacity"
+                                >
+                                  <X className="w-3 h-3 text-muted-foreground hover:text-destructive" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Signed in as - minimal */}
+                  <p className="text-xs text-muted-foreground text-center">{email}</p>
+
+                  {/* Processing Mode Toggle - Minimal */}
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border">
+                    <span className="text-sm text-foreground">
+                      {precisionMode ? 'Precision (3 FPS)' : 'Fast (1 FPS)'}
+                    </span>
                     <button
-                      onClick={() => setMergedCourseMode(!mergedCourseMode)}
+                      onClick={() => setPrecisionMode(!precisionMode)}
                       className={cn(
-                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0",
-                        mergedCourseMode ? "bg-primary" : "bg-muted-foreground/30"
+                        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                        precisionMode ? "bg-amber-500" : "bg-primary"
                       )}
                     >
                       <span
                         className={cn(
                           "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
-                          mergedCourseMode ? "translate-x-6" : "translate-x-1"
+                          precisionMode ? "translate-x-6" : "translate-x-1"
                         )}
                       />
                     </button>
                   </div>
-                )}
 
-                {/* Terms Checkbox - Minimal */}
-                <div className="flex items-center gap-3">
-                  <Checkbox
-                    id="terms"
-                    checked={termsAccepted}
-                    onCheckedChange={(checked) => setTermsAccepted(checked === true)}
-                  />
-                  <label htmlFor="terms" className="text-sm text-muted-foreground cursor-pointer">
-                    I have rightful access to this material.{' '}
-                    <Link to="/terms" className="text-primary hover:underline">Terms</Link>
-                  </label>
-                </div>
+                  {/* Output Mode Toggle - Clearer labels per beta feedback */}
+                  {files.length > 1 && (
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/20">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-foreground">
+                          {mergedCourseMode ? 'Combined Output' : 'Separate Outputs'}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {mergedCourseMode
+                            ? 'One PDF with all videos as chapters'
+                            : 'One PDF per video'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => setMergedCourseMode(!mergedCourseMode)}
+                        className={cn(
+                          "relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0",
+                          mergedCourseMode ? "bg-primary" : "bg-muted-foreground/30"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                            mergedCourseMode ? "translate-x-6" : "translate-x-1"
+                          )}
+                        />
+                      </button>
+                    </div>
+                  )}
 
-                {/* Submit Button - Clearer label per beta feedback */}
-                <Button
-                  onClick={handleSubmit}
-                  disabled={!isFormValid || isUploading}
-                  className="w-full h-14 text-lg font-semibold"
-                  size="lg"
-                >
-                  {(() => {
-                    const totalItems = files.length + courseFiles.length;
-                    if (totalItems === 0) return 'Submit';
-                    if (totalItems === 1) return 'Submit File';
-                    return `Submit All ${totalItems} Files`;
-                  })()}
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
-              </motion.div>
-            )}
-
-            {/* PROCESSING STEP - Locked, Read-Only, Cloud-Only */}
-            {step === 'processing' && (
-              <motion.div
-                key="processing"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="space-y-8"
-              >
-                {/* Locked Header */}
-                <div className="text-center space-y-3">
-                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
-                    <Cloud className="w-6 h-6 text-primary" />
-                  </div>
-                  <h1 className="text-headline text-foreground">
-                    Uploading{' '}
-                    <RotatingWord 
-                      words={['Relief', 'Freedom', 'Scale', 'Clarity', 'Delegation', 'Your Life Back']} 
-                      intervalMs={3000}
-                      className="text-primary"
+                  {/* Terms Checkbox - Minimal */}
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="terms"
+                      checked={termsAccepted}
+                      onCheckedChange={(checked) => setTermsAccepted(checked === true)}
                     />
-                  </h1>
-                  <p className="text-muted-foreground">
-                    <span className="font-medium text-foreground">{courseTitle}</span>
-                  </p>
-                </div>
+                    <label htmlFor="terms" className="text-sm text-muted-foreground cursor-pointer">
+                      I have rightful access to this material.{' '}
+                      <Link to="/terms" className="text-primary hover:underline">Terms</Link>
+                    </label>
+                  </div>
 
-                {/* Cloud Processing Info */}
+                  {/* Submit Button - Clearer label per beta feedback */}
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={!isFormValid || isUploading}
+                    className="w-full h-14 text-lg font-semibold"
+                    size="lg"
+                  >
+                    {(() => {
+                      const totalItems = files.length + courseFiles.length;
+                      if (totalItems === 0) return 'Submit';
+                      if (totalItems === 1) return 'Submit File';
+                      return `Submit All ${totalItems} Files`;
+                    })()}
+                    <ArrowRight className="w-5 h-5 ml-2" />
+                  </Button>
+                </motion.div>
+              )}
+
+              {/* PROCESSING STEP - Locked, Read-Only, Cloud-Only */}
+              {step === 'processing' && (
                 <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-start gap-3 px-4 py-3 rounded-xl bg-primary/5 border border-primary/20"
+                  key="processing"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-8"
                 >
-                  <Cloud className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-primary">
-                      Uploading to OneDuo
-                    </p>
-                    <p className="text-xs text-primary/70">
-                      Resilient upload — survives WiFi drops and browser refreshes.
+                  {/* Locked Header */}
+                  <div className="text-center space-y-3">
+                    <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                      <Cloud className="w-6 h-6 text-primary" />
+                    </div>
+                    <h1 className="text-headline text-foreground">
+                      Uploading{' '}
+                      <RotatingWord
+                        words={['Relief', 'Freedom', 'Scale', 'Clarity', 'Delegation', 'Your Life Back']}
+                        intervalMs={3000}
+                        className="text-primary"
+                      />
+                    </h1>
+                    <p className="text-muted-foreground">
+                      <span className="font-medium text-foreground">{courseTitle}</span>
                     </p>
                   </div>
-                </motion.div>
 
-                {/* Caution Banner */}
-                {!progress.canClose && (
+                  {/* Cloud Processing Info */}
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30"
+                    className="flex items-start gap-3 px-4 py-3 rounded-xl bg-primary/5 border border-primary/20"
                   >
-                    <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                    <div className="space-y-0.5">
-                      <p className="text-sm font-medium text-amber-500">
-                        Keep this tab open until uploads finish
+                    <Cloud className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-primary">
+                        Uploading to OneDuo
                       </p>
-                      <p className="text-xs text-amber-500/70">
-                        Switching to other tabs is fine — just don't close this one until all modules are done uploading.
+                      <p className="text-xs text-primary/70">
+                        Resilient upload — survives WiFi drops and browser refreshes.
                       </p>
                     </div>
                   </motion.div>
-                )}
 
-                {/* Locked Module List */}
-                <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-                {files.map((file, index) => {
-                    const status = getFileStatus(index);
-                    const attachmentCount = file.attachments?.length || 0;
-                    
-                    return (
-                      <div
-                        key={file.id}
-                        className="rounded-lg bg-muted/30 overflow-hidden"
-                      >
-                        <div className="flex items-center gap-3 p-3">
-                          {status === 'uploaded' && (
-                            <Cloud className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-                          )}
-                          {status === 'uploading' && (
-                            <Loader2 className="w-5 h-5 text-primary animate-spin flex-shrink-0" />
-                          )}
-                          {status === 'pending' && (
-                            <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
-                          )}
-                          
-                          <span className="flex-1 truncate text-foreground text-sm">
-                            {file.name}
-                          </span>
-                          
-                          {/* Attachment indicators */}
-                          {attachmentCount > 0 && (
-                            <div className="flex items-center gap-0.5 mr-2">
-                              {Array.from({ length: Math.min(attachmentCount, 3) }).map((_, i) => (
-                                <Paperclip 
-                                  key={i} 
-                                  className={cn(
-                                    "w-3.5 h-3.5 text-amber-500/80",
-                                    i > 0 && "-ml-1.5"
-                                  )} 
-                                />
-                              ))}
-                              {attachmentCount > 3 && (
-                                <span className="text-xs text-amber-500/80 ml-0.5">+{attachmentCount - 3}</span>
-                              )}
-                            </div>
-                          )}
-                          
-                          {/* Status badge - simplified, no duplicate percentage */}
-                          <span className={cn(
-                            "text-xs px-2 py-1 rounded-full",
-                            status === 'uploaded' && "bg-emerald-500/10 text-emerald-500",
-                            status === 'uploading' && "bg-primary/10 text-primary",
-                            status === 'pending' && "bg-muted text-muted-foreground"
-                          )}>
-                            {status === 'uploaded' && 'Saved'}
-                            {status === 'uploading' && 'Uploading...'}
-                            {status === 'pending' && 'Waiting'}
-                          </span>
-                        </div>
+                  {/* Caution Banner */}
+                  {!progress.canClose && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30"
+                    >
+                      <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <p className="text-sm font-medium text-amber-500">
+                          Keep this tab open until uploads finish
+                        </p>
+                        <p className="text-xs text-amber-500/70">
+                          Switching to other tabs is fine — just don't close this one until all modules are done uploading.
+                        </p>
                       </div>
-                    );
-                  })}
-                </div>
+                    </motion.div>
+                  )}
 
-                {/* Overall Progress with Prominent Percentage - Sticky */}
-                <div ref={progressRef} className="sticky bottom-4 z-10 bg-background/95 backdrop-blur-sm rounded-xl border border-border p-4 shadow-lg space-y-3">
-                  {/* Large percentage badge like Handbrake */}
-                  {(() => {
-                    // Calculate realistic progress:
-                    // - Each module's upload counts for 90% of its slice (file transfer)
-                    // - Remaining 10% is for verification which we can't track precisely
-                    // - Cap overall at 99% until stage changes to 'submitted' or 'complete'
-                    const moduleSlice = progress.totalModules > 0 ? 90 / progress.totalModules : 0;
-                    const completedModulesProgress = progress.uploadedModules * moduleSlice;
-                    const currentModuleProgress = (progress.currentModuleProgress || 0) * 0.9 * moduleSlice / 100;
-                    let overallProgress = completedModulesProgress + currentModuleProgress;
-                    
-                    // Cap at 95% during upload phase, allow 100% only when submitted/complete
-                    if (progress.stage === 'uploading' && overallProgress > 95) {
-                      overallProgress = 95;
-                    } else if (progress.stage === 'submitted') {
-                      overallProgress = 100;
-                    }
-                    
-                    return (
-                      <>
-                        <div className="flex justify-center">
-                          <div className="bg-primary/10 border border-primary/20 rounded-2xl px-6 py-3">
-                            <span className="text-3xl font-mono font-semibold text-primary tabular-nums">
-                              {overallProgress.toFixed(1)}%
+                  {/* Locked Module List */}
+                  <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+                    {files.map((file, index) => {
+                      const status = getFileStatus(index);
+                      const attachmentCount = file.attachments?.length || 0;
+
+                      return (
+                        <div
+                          key={file.id}
+                          className="rounded-lg bg-muted/30 overflow-hidden"
+                        >
+                          <div className="flex items-center gap-3 p-3">
+                            {status === 'uploaded' && (
+                              <Cloud className="w-5 h-5 text-emerald-500 flex-shrink-0" />
+                            )}
+                            {status === 'uploading' && (
+                              <Loader2 className="w-5 h-5 text-primary animate-spin flex-shrink-0" />
+                            )}
+                            {status === 'pending' && (
+                              <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
+                            )}
+
+                            <span className="flex-1 truncate text-foreground text-sm">
+                              {file.name}
+                            </span>
+
+                            {/* Attachment indicators */}
+                            {attachmentCount > 0 && (
+                              <div className="flex items-center gap-0.5 mr-2">
+                                {Array.from({ length: Math.min(attachmentCount, 3) }).map((_, i) => (
+                                  <Paperclip
+                                    key={i}
+                                    className={cn(
+                                      "w-3.5 h-3.5 text-amber-500/80",
+                                      i > 0 && "-ml-1.5"
+                                    )}
+                                  />
+                                ))}
+                                {attachmentCount > 3 && (
+                                  <span className="text-xs text-amber-500/80 ml-0.5">+{attachmentCount - 3}</span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Status badge - simplified, no duplicate percentage */}
+                            <span className={cn(
+                              "text-xs px-2 py-1 rounded-full",
+                              status === 'uploaded' && "bg-emerald-500/10 text-emerald-500",
+                              status === 'uploading' && "bg-primary/10 text-primary",
+                              status === 'pending' && "bg-muted text-muted-foreground"
+                            )}>
+                              {status === 'uploaded' && 'Saved'}
+                              {status === 'uploading' && 'Uploading...'}
+                              {status === 'pending' && 'Waiting'}
                             </span>
                           </div>
                         </div>
-                        
-                        <Progress 
-                          value={overallProgress} 
-                          className="h-2"
-                        />
-                      </>
-                    );
-                  })()}
-                  <p className="text-sm text-center text-muted-foreground">
-                    {progress.message}
-                  </p>
-                </div>
+                      );
+                    })}
+                  </div>
 
-                {/* Reassurance Message */}
-                {progress.canClose && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-green-500/5 border border-green-500/20 rounded-xl p-6 text-center space-y-2"
-                  >
-                    <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto" />
+                  {/* Overall Progress with Prominent Percentage - Sticky */}
+                  <div ref={progressRef} className="sticky bottom-4 z-10 bg-background/95 backdrop-blur-sm rounded-xl border border-border p-4 shadow-lg space-y-3">
+                    {/* Large percentage badge like Handbrake */}
+                    {(() => {
+                      // Calculate realistic progress:
+                      // - Each module's upload counts for 90% of its slice (file transfer)
+                      // - Remaining 10% is for verification which we can't track precisely
+                      // - Cap overall at 99% until stage changes to 'submitted' or 'complete'
+                      const moduleSlice = progress.totalModules > 0 ? 90 / progress.totalModules : 0;
+                      const completedModulesProgress = progress.uploadedModules * moduleSlice;
+                      const currentModuleProgress = (progress.currentModuleProgress || 0) * 0.9 * moduleSlice / 100;
+                      let overallProgress = completedModulesProgress + currentModuleProgress;
+
+                      // Cap at 95% during upload phase, allow 100% only when submitted/complete
+                      if (progress.stage === 'uploading' && overallProgress > 95) {
+                        overallProgress = 95;
+                      } else if (progress.stage === 'submitted') {
+                        overallProgress = 100;
+                      }
+
+                      return (
+                        <>
+                          <div className="flex justify-center">
+                            <div className="bg-primary/10 border border-primary/20 rounded-2xl px-6 py-3">
+                              <span className="text-3xl font-mono font-semibold text-primary tabular-nums">
+                                {overallProgress.toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+
+                          <Progress
+                            value={overallProgress}
+                            className="h-2"
+                          />
+                        </>
+                      );
+                    })()}
+                    <p className="text-sm text-center text-muted-foreground">
+                      {progress.message}
+                    </p>
+                  </div>
+
+                  {/* Reassurance Message */}
+                  {progress.canClose && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-green-500/5 border border-green-500/20 rounded-xl p-6 text-center space-y-2"
+                    >
+                      <CheckCircle2 className="w-8 h-8 text-green-500 mx-auto" />
+                      <p className="text-foreground font-medium">
+                        Your course is processing safely in the cloud.
+                      </p>
+                      <p className="text-muted-foreground text-sm">
+                        You can close this tab — we'll email you as each module is ready.
+                      </p>
+                    </motion.div>
+                  )}
+
+                  {/* Cancel Option (subtle) */}
+                  <div className="text-center">
+                    <button
+                      onClick={() => {
+                        cancel();
+                        setStep('input');
+                      }}
+                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      Cancel upload
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* CELEBRATING STEP - Magical transition to dashboard */}
+              {step === 'celebrating' && (
+                <UploadCelebration
+                  courseTitle={courseTitle}
+                  isFirstUpload={isFirstUpload}
+                  onComplete={() => {
+                    if (isFirstUpload) {
+                      markFirstUploadComplete();
+                    }
+                    setStep('complete');
+                  }}
+                />
+              )}
+
+              {/* COMPLETE STEP - Fallback if user navigates back */}
+              {step === 'complete' && (
+                <motion.div
+                  key="complete"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-8 text-center"
+                >
+                  {/* Success Icon */}
+                  <div className="w-20 h-20 rounded-full bg-green-500/10 flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-10 h-10 text-green-500" />
+                  </div>
+
+                  {/* Success Message */}
+                  <div className="space-y-3">
+                    <h1 className="text-headline text-foreground">You're All Set!</h1>
+                    <p className="text-muted-foreground max-w-md mx-auto">
+                      <span className="font-medium text-foreground">{files.length} {files.length === 1 ? 'video' : 'videos'}</span> submitted for processing.
+                      <br />
+                      We'll email you at <span className="font-medium text-foreground">{email}</span> as each module is ready.
+                    </p>
+                  </div>
+
+                  {/* Reassurance */}
+                  <div className="bg-card border border-border rounded-xl p-6 space-y-2">
                     <p className="text-foreground font-medium">
                       Your course is processing safely in the cloud.
                     </p>
-                    <p className="text-muted-foreground text-sm">
-                      You can close this tab — we'll email you as each module is ready.
+                    <p className="text-sm text-muted-foreground">
+                      Processing typically takes 5-15 minutes per video depending on length.
                     </p>
-                  </motion.div>
-                )}
+                  </div>
 
-                {/* Cancel Option (subtle) */}
-                <div className="text-center">
-                  <button
-                    onClick={() => {
-                      cancel();
-                      setStep('input');
-                    }}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    Cancel upload
-                  </button>
-                </div>
-              </motion.div>
-            )}
-
-            {/* CELEBRATING STEP - Magical transition to dashboard */}
-            {step === 'celebrating' && (
-              <UploadCelebration 
-                courseTitle={courseTitle}
-                isFirstUpload={isFirstUpload}
-                onComplete={() => {
-                  if (isFirstUpload) {
-                    markFirstUploadComplete();
-                  }
-                  setStep('complete');
-                }}
-              />
-            )}
-
-            {/* COMPLETE STEP - Fallback if user navigates back */}
-            {step === 'complete' && (
-              <motion.div
-                key="complete"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0 }}
-                className="space-y-8 text-center"
-              >
-                {/* Success Icon */}
-                <div className="w-20 h-20 rounded-full bg-green-500/10 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-10 h-10 text-green-500" />
-                </div>
-
-                {/* Success Message */}
-                <div className="space-y-3">
-                  <h1 className="text-headline text-foreground">You're All Set!</h1>
-                  <p className="text-muted-foreground max-w-md mx-auto">
-                    <span className="font-medium text-foreground">{files.length} {files.length === 1 ? 'video' : 'videos'}</span> submitted for processing.
-                    <br />
-                    We'll email you at <span className="font-medium text-foreground">{email}</span> as each module is ready.
-                  </p>
-                </div>
-
-                {/* Reassurance */}
-                <div className="bg-card border border-border rounded-xl p-6 space-y-2">
-                  <p className="text-foreground font-medium">
-                    Your course is processing safely in the cloud.
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Processing typically takes 5-15 minutes per video depending on length.
-                  </p>
-                </div>
-
-                {/* Actions */}
-                <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                  <Button
-                    variant="outline"
-                    onClick={() => navigate('/dashboard')}
-                    className="min-w-[160px]"
-                  >
-                    Go to Dashboard
-                  </Button>
-                  <Button
-                    onClick={startAnother}
-                    className="min-w-[160px]"
-                  >
-                    Upload Another Course
-                  </Button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                  {/* Actions */}
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    <Button
+                      variant="outline"
+                      onClick={() => navigate('/dashboard')}
+                      className="min-w-[160px]"
+                    >
+                      Go to Dashboard
+                    </Button>
+                    <Button
+                      onClick={startAnother}
+                      className="min-w-[160px]"
+                    >
+                      Upload Another Course
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
-      </div>
-      
+
       {/* Nedu Chat Assistant */}
       {email && <NeduChat email={email} />}
     </>
