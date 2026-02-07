@@ -740,7 +740,7 @@ export const generateChatGPTPDF = async (
 
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(11);
-    pdf.setTextColor(30, 30, 30);
+    pdf.setTextColor(0, 0, 0);
 
     transcript.forEach((seg: any) => {
       const ts = formatTime(seg.start);
@@ -1564,7 +1564,7 @@ export const generateChatGPTPDF = async (
       if (file.content && file.content.trim().length > 0) {
         pdf.setFontSize(9);
         pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(30, 30, 30);
+        pdf.setTextColor(0, 0, 0);
 
         // Header for extracted text
         pdf.setFont('helvetica', 'bold');
@@ -1584,7 +1584,7 @@ export const generateChatGPTPDF = async (
             addPageWithHeaders();
             pdf.setFontSize(9);
             pdf.setFont('helvetica', 'normal');
-            pdf.setTextColor(30, 30, 30);
+            pdf.setTextColor(0, 0, 0);
           }
           pdf.text(line, margin + 4, y);
           y += 4.5;
@@ -1883,7 +1883,7 @@ export const generateMergedCoursePDF = async (
 
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(11); // INCREASED font size for better readability
-      pdf.setTextColor(30, 30, 30);
+      pdf.setTextColor(0, 0, 0);
 
       // Include FULL transcript for merged PDFs
       const transcriptSegments = module.transcript;
@@ -2041,7 +2041,7 @@ export const generateMergedCoursePDF = async (
       if (file.content && file.content.trim().length > 0) {
         pdf.setFontSize(9);
         pdf.setFont('helvetica', 'normal');
-        pdf.setTextColor(30, 30, 30);
+        pdf.setTextColor(0, 0, 0);
 
         // Header for extracted text
         pdf.setFont('helvetica', 'bold');
@@ -2061,7 +2061,7 @@ export const generateMergedCoursePDF = async (
             addPageWithHeaders();
             pdf.setFontSize(9);
             pdf.setFont('helvetica', 'normal');
-            pdf.setTextColor(30, 30, 30);
+            pdf.setTextColor(0, 0, 0);
           }
           pdf.text(line, margin + 4, y);
           y += 4.5;
