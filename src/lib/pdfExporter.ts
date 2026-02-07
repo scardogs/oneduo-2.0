@@ -1697,7 +1697,8 @@ export const generateMergedCoursePDF = async (
   };
 
   // ========== GLOBAL PAGE 1: COURSE COVER PAGE ==========
-  addPageWithHeaders();
+  // ========== GLOBAL PAGE 1: COURSE COVER PAGE ==========
+  y = margin + 10;
   onProgress?.(5, 'Creating Global Title Page...');
 
   // Title
@@ -1776,8 +1777,15 @@ export const generateMergedCoursePDF = async (
     }
 
     // ========== INTELLIGENCE LAYERS (A-D) ==========
-    addPageWithHeaders();
-    y = margin + 10;
+    const hasIntelLayers = (module.key_moments_index && module.key_moments_index.length > 0) ||
+      (module.concepts_frameworks && module.concepts_frameworks.length > 0) ||
+      (module.implementation_steps && module.implementation_steps.length > 0) ||
+      (module.hidden_patterns && module.hidden_patterns.length > 0);
+
+    if (hasIntelLayers) {
+      addPageWithHeaders();
+      y = margin + 10;
+    }
 
     // Layer A: Key Moments
     if (module.key_moments_index && module.key_moments_index.length > 0) {
@@ -1853,10 +1861,10 @@ export const generateMergedCoursePDF = async (
     }
 
     // ========== TRANSCRIPT SECTION (MONOSPACE) ==========
-    addPageWithHeaders();
-    y = margin + 10;
-
     if (module.transcript && module.transcript.length > 0) {
+      addPageWithHeaders();
+      y = margin + 10;
+
       pdf.setFontSize(14);
       pdf.setFont('helvetica', 'bold');
       pdf.setTextColor(0, 0, 0);
@@ -1880,8 +1888,16 @@ export const generateMergedCoursePDF = async (
         const text = safe(`${segment.speaker ? `${segment.speaker}: ` : ''}${segment.text}`);
         const line = `${timestamp} ${text}`;
         const textLines = pdf.splitTextToSize(line, contentWidth);
-        pdf.text(textLines, margin, y);
-        y += (textLines.length * 6.0); // Correctly increment y for wrapped text
+
+        for (const textLine of textLines) {
+          if (y > pageHeight - 20) {
+            addPageWithHeaders();
+            pdf.setFont('courier', 'normal');
+            pdf.setFontSize(11);
+          }
+          pdf.text(textLine, margin, y);
+          y += 6.0;
+        }
       }
 
       // Small gap after transcript
@@ -1890,10 +1906,6 @@ export const generateMergedCoursePDF = async (
 
     // ========== VISUAL FRAMES SECTION ==========
     if (module.frame_urls && module.frame_urls.length > 0) {
-      if (y > pageHeight - 50) {
-        addPageWithHeaders();
-      }
-
       addPageWithHeaders();
       y = margin + 10;
 
