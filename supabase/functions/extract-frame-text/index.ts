@@ -189,6 +189,7 @@ serve(async (req) => {
       startIndex = 0,
       transcriptContext = '',
       filmMode = false,
+      isStoragePath = false, // NEW: Flag to treat frameUrls as storage paths
       // EXPORT HARDENING: New options for long video resilience
       allowPartialResults = true,  // Continue on individual frame failures
       timeoutMs = 30000,           // Per-frame timeout
@@ -215,6 +216,32 @@ serve(async (req) => {
     // Pre-detect verbal markers from transcript context
     const globalVerbalMarkers = detectVerbalMarkers(transcriptContext);
     console.log(`[extract-frame-text] Found ${globalVerbalMarkers.length} verbal intent markers in transcript context`);
+
+    // NEW: Resolve storage paths to signed URLs if needed
+    let finalFrameUrls = [...frameUrls];
+    if (isStoragePath) {
+      console.log(`[extract-frame-text] Resolving ${frameUrls.length} storage paths to signed URLs...`);
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      finalFrameUrls = await Promise.all(frameUrls.map(async (path) => {
+        const { data, error } = await supabase.storage
+          .from('course-files')
+          .createSignedUrl(path, 3600); // 1 hour expiry
+
+        if (error || !data?.signedUrl) {
+          console.error(`[extract-frame-text] Failed to create signed URL for ${path}:`, error);
+          return null;
+        }
+        return data.signedUrl;
+      })).then(urls => urls.filter(u => u !== null) as string[]);
+
+      if (finalFrameUrls.length === 0) {
+        throw new Error('Failed to resolve any storage paths to signed URLs');
+      }
+    }
 
     const results: (FrameAnalysis | null)[] = [];
 
@@ -368,9 +395,9 @@ Respond ONLY in this exact JSON format:
 
     const systemPrompt = filmMode ? filmSystemPrompt : trainingSystemPrompt;
 
-    for (let i = 0; i < frameUrls.length; i += effectiveBatchSize) {
-      const batch = frameUrls.slice(i, i + effectiveBatchSize);
-      console.log(`[extract-frame-text] Processing batch ${Math.floor(i / effectiveBatchSize) + 1}, frames ${i + 1}-${Math.min(i + effectiveBatchSize, frameUrls.length)}`);
+    for (let i = 0; i < finalFrameUrls.length; i += effectiveBatchSize) {
+      const batch = finalFrameUrls.slice(i, i + effectiveBatchSize);
+      console.log(`[extract-frame-text] Processing batch ${Math.floor(i / effectiveBatchSize) + 1}, frames ${i + 1}-${Math.min(i + effectiveBatchSize, finalFrameUrls.length)}`);
 
       const batchPromises = batch.map(async (frameUrl: string, batchIndex: number) => {
         const frameIndex = startIndex + i + batchIndex;

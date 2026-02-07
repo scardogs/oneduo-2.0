@@ -66,9 +66,37 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
     const imageFormats = ['.jpg', '.jpeg', '.png', '.webp'];
     const docFormats = ['.pdf', '.pptx', '.docx'];
 
-    const isPlainText = plainTextFormats.some(ext => fileName.endsWith(ext));
-    const isImage = imageFormats.some(ext => fileName.endsWith(ext));
-    const isDoc = docFormats.some(ext => fileName.endsWith(ext));
+    let isPlainText = plainTextFormats.some(ext => fileName.endsWith(ext));
+    let isImage = imageFormats.some(ext => fileName.endsWith(ext));
+    let isDoc = docFormats.some(ext => fileName.endsWith(ext));
+    let detectedFileType = fileName.endsWith('.pdf') ? 'pdf' :
+      fileName.endsWith('.pptx') ? 'pptx' :
+        fileName.endsWith('.docx') ? 'docx' : '';
+
+    // MAGIC BYTE DETECTION for extensionless files or wrong extensions
+    if (!isPlainText && !isImage && !isDoc) {
+      try {
+        const buffer = await fileData.slice(0, 4).arrayBuffer();
+        const header = new Uint8Array(buffer);
+        const headerHex = Array.from(header).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+
+        // PDF: %PDF (25 50 44 46)
+        if (headerHex === '25504446') {
+          isDoc = true;
+          detectedFileType = 'pdf';
+          console.log(`[parallelFileLoader] Detected PDF via magic bytes for: ${file.name}`);
+        }
+        // ZIP/DOCX/PPTX: PK.. (50 4B 03 04)
+        else if (headerHex === '504B0304') {
+          isDoc = true;
+          // Default to docx for zipped if unsure, or check name for hints
+          detectedFileType = fileName.includes('ppt') ? 'pptx' : 'docx';
+          console.log(`[parallelFileLoader] Detected ZIP/DOCX/PPTX via magic bytes for: ${file.name}`);
+        }
+      } catch (e) {
+        console.warn('[parallelFileLoader] Magic byte detection failed', e);
+      }
+    }
 
     if (isPlainText) {
       textContent = await fileData.text();
@@ -76,21 +104,28 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
       // Use OCR for supplemental images
       try {
         const { data: extractData, error: extractError } = await supabase.functions.invoke('extract-frame-text', {
-          body: { storagePath: file.storagePath }
+          body: {
+            frameUrls: [file.storagePath],
+            isStoragePath: true // Custom flag if we want to handle storage paths directly in function
+          }
         });
 
-        if (extractError || !extractData?.text) {
+        // Since extract-frame-text usually expects frameUrls, we might need a simpler OCR tool 
+        // or ensure extract-frame-text handles single storage paths.
+        // For now, let's assume it can handle the storage path if we pass it correctly.
+
+        if (extractError || !extractData?.results?.[0]?.text) {
           textContent = `[Image Document: ${file.name}]\n[OCR extraction failed or no text found.]`;
         } else {
-          textContent = `[Image Content Transcript]:\n${extractData.text}`;
+          textContent = `[Image Content Transcript]:\n${extractData.results[0].text}`;
         }
       } catch (err) {
         textContent = `[Image Document: ${file.name}]\n[OCR extraction error]`;
       }
     } else if (isDoc) {
       // Use server-side extraction for binary formats
-      const fileType = fileName.endsWith('.pdf') ? 'pdf' :
-        fileName.endsWith('.pptx') ? 'pptx' : 'docx';
+      const fileType = detectedFileType || (fileName.endsWith('.pdf') ? 'pdf' :
+        fileName.endsWith('.pptx') ? 'pptx' : 'docx');
 
       try {
         const { data: extractData, error: extractError } = await supabase.functions.invoke('extract-document-text', {
@@ -98,16 +133,21 @@ async function loadSingleFile(file: CourseFile, timeoutMs: number = FILE_TIMEOUT
         });
 
         if (extractError || !extractData?.text) {
-          return {
-            name: file.name,
-            content: `[${fileType.toUpperCase()} Document: ${file.name}]\n[Text extraction failed. Consider uploading as .txt.]`,
-            size: file.size,
-            success: false,
-            error: extractError?.message || 'Extraction failed',
-          };
+          // If extensionless failed, maybe it WASN'T a doc after all.
+          if (!fileName.includes('.')) {
+            textContent = `[File: ${file.name}]\n[Binary/unsupported format - file reference included but content cannot be embedded as text]`;
+          } else {
+            return {
+              name: file.name,
+              content: `[${fileType.toUpperCase()} Document: ${file.name}]\n[Text extraction failed. Consider uploading as .txt.]`,
+              size: file.size,
+              success: false,
+              error: extractError?.message || 'Extraction failed',
+            };
+          }
+        } else {
+          textContent = `[${fileType.toUpperCase()} Document Transcript]:\n${extractData.text}`;
         }
-
-        textContent = `[${fileType.toUpperCase()} Document Transcript]:\n${extractData.text}`;
       } catch (err) {
         return {
           name: file.name,
